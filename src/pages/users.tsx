@@ -80,8 +80,15 @@ import { cn } from '@/lib/utils';
 /// UI, not shared data; the users and deletions collections are live Firestore
 /// subscriptions and the aggregate stats are a one-shot read.
 
-const SHEETS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbytOmOrYtHPX0e3gmlQ9wxT0T6PywMUlUyrOnjORN3ZWYScUiwqO5fHkxUWA2nztyk07A/exec';
+/// The deployed Apps Script endpoint the user export posts to. Kept out of the
+/// source because the URL is itself the credential — anyone holding it can post
+/// to the sheet.
+///
+/// Being a `VITE_` var keeps it out of this repo, NOT out of the shipped app:
+/// Vite inlines it into the client bundle, so it is still readable by anyone
+/// who opens the deployed JS. Making it genuinely secret means moving the sync
+/// behind the backend, which is the real fix.
+const SHEETS_SCRIPT_URL = import.meta.env.VITE_SHEETS_SCRIPT_URL ?? '';
 
 const PLATFORMS: PlatformFilter[] = ['Overall', 'iOS', 'Android'];
 const SORTS = ['Newest', 'Health', 'Name'] as const;
@@ -483,6 +490,12 @@ export function UsersPage() {
   }
 
   async function syncSheets() {
+    // Without the endpoint the post would fail with a network error that says
+    // nothing about the real cause, so name it.
+    if (!SHEETS_SCRIPT_URL) {
+      toast.error('Sheets sync is not configured — VITE_SHEETS_SCRIPT_URL is unset.');
+      return;
+    }
     setSyncing(true);
     try {
       const ok = await syncToGoogleSheets(SHEETS_SCRIPT_URL, {
