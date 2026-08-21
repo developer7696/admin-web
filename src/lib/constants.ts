@@ -44,3 +44,14 @@ export function planKeyLabel(key: string): string {
       return key;
   }
 }
+
+/// Deployed Google Apps Script `/exec` endpoint the user export posts to.
+///
+/// Kept out of the source because the URL is itself the credential — anyone
+/// holding it can write to the sheet. Set `VITE_SHEETS_SCRIPT_URL`; see
+/// `.env.example`.
+///
+/// Being a `VITE_` var keeps it out of the repo, NOT out of the shipped app:
+/// Vite inlines it into the client bundle, so it stays readable by anyone who
+/// opens the deployed JS. Moving the sync behind the backend is the real fix.
+export const SHEETS_SCRIPT_URL: string = import.meta.env.VITE_SHEETS_SCRIPT_URL ?? '';

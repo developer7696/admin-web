@@ -80,15 +80,7 @@ import { cn } from '@/lib/utils';
 /// UI, not shared data; the users and deletions collections are live Firestore
 /// subscriptions and the aggregate stats are a one-shot read.
 
-/// The deployed Apps Script endpoint the user export posts to. Kept out of the
-/// source because the URL is itself the credential — anyone holding it can post
-/// to the sheet.
-///
-/// Being a `VITE_` var keeps it out of this repo, NOT out of the shipped app:
-/// Vite inlines it into the client bundle, so it is still readable by anyone
-/// who opens the deployed JS. Making it genuinely secret means moving the sync
-/// behind the backend, which is the real fix.
-const SHEETS_SCRIPT_URL = import.meta.env.VITE_SHEETS_SCRIPT_URL ?? '';
+import { SHEETS_SCRIPT_URL } from '@/lib/constants';
 
 const PLATFORMS: PlatformFilter[] = ['Overall', 'iOS', 'Android'];
 const SORTS = ['Newest', 'Health', 'Name'] as const;

@@ -156,13 +156,13 @@ const PLATFORMS: { key: PlatformFilter; label: string }[] = [
   { key: 'android', label: 'Android' },
 ];
 
+import { SHEETS_SCRIPT_URL } from '@/lib/constants';
+
 const COHORTS: { key: Cohort; label: string }[] = [
   { key: 'customers', label: 'Customers' },
   { key: 'all', label: 'Everyone' },
 ];
 
-const SHEETS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbytOmOrYtHPX0e3gmlQ9wxT0T6PywMUlUyrOnjORN3ZWYScUiwqO5fHkxUWA2nztyk07A/exec';
 
 /// The CSV export still reads Firestore directly and speaks the old filter
 /// vocabulary. Translating here keeps the page on one filter model rather than
@@ -505,6 +505,12 @@ export function DashboardHome() {
   }
 
   async function syncSheets() {
+    // Without the endpoint the post fails with a network error that says
+    // nothing about the real cause, so name it.
+    if (!SHEETS_SCRIPT_URL) {
+      toast.error('Sheets sync is not configured — VITE_SHEETS_SCRIPT_URL is unset.');
+      return;
+    }
     setSyncing(true);
     toast('Syncing to Google Sheets…');
     try {
