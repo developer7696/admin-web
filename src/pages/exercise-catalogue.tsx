@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeleteExercise, useExerciseCatalog } from '@/hooks/use-exercise-catalog';
+import { useCan } from '@/auth/auth-context';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { mediaHasImage, mediaHasVideo, mediaIsLinked, type Exercise } from '@/types/exercise-catalog';
 import { AzureVideo } from '@/components/common/azure-video';
@@ -186,12 +187,17 @@ function DetailPane({
   onClose,
   onEdit,
   onDelete,
+  canWrite,
   embedded = false,
 }: {
   row: Exercise;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /// Without `exercises:write` the pane is a viewer: Edit and Delete are gone,
+  /// not disabled. A greyed-out Delete on a catalogue you can only read is
+  /// noise — the API refuses it either way.
+  canWrite: boolean;
   embedded?: boolean;
 }) {
   const style = styleFor(row.type);
@@ -213,12 +219,16 @@ function DetailPane({
             <p className="mt-1 text-[15px] font-bold">{row.name || '—'}</p>
           )}
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={onEdit} title="Edit">
-          <SquarePen className="size-[17px] text-muted-foreground" />
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete exercise">
-          <Trash2 className="size-[18px] text-red-400" />
-        </Button>
+        {canWrite && (
+          <>
+            <Button variant="ghost" size="icon-sm" onClick={onEdit} title="Edit">
+              <SquarePen className="size-[17px] text-muted-foreground" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete exercise">
+              <Trash2 className="size-[18px] text-red-400" />
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close">
           <X className="size-[18px] text-muted-foreground" />
         </Button>
@@ -287,6 +297,7 @@ export function ExerciseCataloguePage() {
 
   const { data, isLoading, isError, error } = useExerciseCatalog();
   const remove = useDeleteExercise();
+  const canWrite = useCan('exercises:write');
 
   const rows = data?.exercises ?? [];
 
@@ -369,9 +380,11 @@ export function ExerciseCataloguePage() {
             />
           </HeaderSlot>
 
-          <Button size="sm" onClick={() => openForm(null)}>
-            <Plus /> New exercise
-          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => openForm(null)}>
+              <Plus /> New exercise
+            </Button>
+          )}
         </PageBar>
 
         {/* One chip per type, each carrying its own count — the counts double as
@@ -506,17 +519,19 @@ export function ExerciseCataloguePage() {
                   )}
                 </div>
 
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title="Edit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openForm(row);
-                  }}
-                >
-                  <SquarePen className="size-[17px] text-muted-foreground" />
-                </Button>
+                {canWrite && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Edit"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openForm(row);
+                    }}
+                  >
+                    <SquarePen className="size-[17px] text-muted-foreground" />
+                  </Button>
+                )}
               </div>
             );
           })}
@@ -534,6 +549,7 @@ export function ExerciseCataloguePage() {
               onClose={() => setSelectedId(null)}
               onEdit={() => openForm(selected)}
               onDelete={() => setDeleting(selected)}
+              canWrite={canWrite}
             />
           ) : (
             <Dialog open onOpenChange={(open) => !open && setSelectedId(null)}>
@@ -544,6 +560,7 @@ export function ExerciseCataloguePage() {
                   onClose={() => setSelectedId(null)}
                   onEdit={() => openForm(selected)}
                   onDelete={() => setDeleting(selected)}
+                  canWrite={canWrite}
                 />
               </DialogContent>
             </Dialog>

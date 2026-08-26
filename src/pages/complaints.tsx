@@ -13,6 +13,7 @@ import {
   type ComplaintRow,
 } from '@/services/complaints-service';
 import { fmtDateTime, toDate } from '@/lib/format';
+import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
@@ -220,11 +221,16 @@ function DetailsDialog({
   onClose,
   onUpdate,
   onDelete,
+  canWrite,
 }: {
   complaint: ComplaintRow;
   onClose: () => void;
   onUpdate: () => void;
   onDelete: () => void;
+  /// `complaints:write` gates the footer. A support reader can still open a
+  /// complaint and read the whole thread - the dialog is the record, not the
+  /// action.
+  canWrite: boolean;
 }) {
   const createdAt = toDate(complaint.createdAt) ?? new Date();
   const respondedAt = toDate(complaint.adminResponseAt);
@@ -269,27 +275,29 @@ function DetailsDialog({
             </Block>
           )}
         </DialogBody>
-        <DialogFooter className="justify-stretch">
-          <Button
-            className="flex-1"
-            onClick={() => {
-              onClose();
-              onUpdate();
-            }}
-          >
-            Update Status
-          </Button>
-          <Button
-            variant="destructive"
-            className="flex-1"
-            onClick={() => {
-              onClose();
-              onDelete();
-            }}
-          >
-            Delete
-          </Button>
-        </DialogFooter>
+        {canWrite && (
+          <DialogFooter className="justify-stretch">
+            <Button
+              className="flex-1"
+              onClick={() => {
+                onClose();
+                onUpdate();
+              }}
+            >
+              Update Status
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={() => {
+                onClose();
+                onDelete();
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -304,6 +312,7 @@ export function ComplaintsPage() {
   const [details, setDetails] = useState<ComplaintRow | null>(null);
   const [updating, setUpdating] = useState<ComplaintRow | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const canWrite = useCan('complaints:write');
 
   const qc = useQueryClient();
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -452,12 +461,16 @@ export function ComplaintsPage() {
               <div className="flex items-center justify-between px-4 pb-3">
                 <span className="text-xs text-muted-foreground">{fmtDateTime(createdAt)}</span>
                 <div className="flex">
-                  <Button variant="ghost" size="icon-sm" onClick={() => setUpdating(c)}>
-                    <SquarePen className="size-5 text-blue-600" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(c.id)}>
-                    <Trash2 className="size-5 text-red-600" />
-                  </Button>
+                  {canWrite && (
+                    <>
+                      <Button variant="ghost" size="icon-sm" onClick={() => setUpdating(c)}>
+                        <SquarePen className="size-5 text-blue-600" />
+                      </Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(c.id)}>
+                        <Trash2 className="size-5 text-red-600" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </Card>
@@ -471,6 +484,7 @@ export function ComplaintsPage() {
           onClose={() => setDetails(null)}
           onUpdate={() => setUpdating(details)}
           onDelete={() => setDeleting(details.id)}
+          canWrite={canWrite}
         />
       )}
 

@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { HeaderSlotProvider, HeaderSlotTarget } from './header-slot';
-import { NAV_SECTIONS } from './nav';
+import { visibleSections } from './nav';
 
 /// Traditional admin-dashboard shell, unchanged in structure from the Flutter
 /// panel: a full-width top navbar (brand + per-page controls + profile), with
@@ -26,9 +26,13 @@ export function Shell() {
 }
 
 function ShellChrome() {
-  const { user } = useAuth();
+  const { user, perms } = useAuth();
   const email = user?.email ?? 'Unknown';
   const initial = email.charAt(0).toUpperCase() || 'A';
+  // Only the panes this grant can open. A section whose every entry was
+  // filtered out disappears with them - an empty "Growth" heading reads as a
+  // bug, not as a permission.
+  const sections = visibleSections(perms);
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -62,7 +66,7 @@ function ShellChrome() {
 
       <div className="flex min-h-0 flex-1">
         <nav className="scrollbar-thin w-[264px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-3 pb-3 pt-5">
-          {NAV_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div key={section.label} className="mb-5">
               <p className="px-3 pb-2 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.8px] text-slate-400">
                 {section.label}

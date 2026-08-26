@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import { adminApi, ApiException, type Json } from '@/lib/api-client';
 import { fmtDayMonthYearClock } from '@/lib/format';
+import { useCan } from '@/auth/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -309,6 +310,10 @@ export function UserBillingPage() {
 
   const [timelineFilter, setTimelineFilter] = useState<'All' | 'Razorpay' | 'Actions'>('All');
   const [refunding, setRefunding] = useState<Json | null>(null);
+  // `billing:read` opens this page; issuing money back needs `billing:write`.
+  // The refund history above stays fully visible either way - answering "were
+  // they refunded?" is the read case, and hiding it would defeat the page.
+  const canRefund = useCan('billing:write');
 
   const { data, isLoading, error, refetch } = useQuery<Json>({
     queryKey: ['payment-history', uid],
@@ -545,7 +550,7 @@ export function UserBillingPage() {
                       : 'text-slate-500 bg-slate-500/12';
                 }
 
-                const canRefund = status === 'captured' && refunded < amount;
+                const refundable = status === 'captured' && refunded < amount;
 
                 return (
                   <div key={i} className="mb-2 rounded-[10px] border border-border bg-muted/40 p-2.5">
@@ -576,7 +581,7 @@ export function UserBillingPage() {
                       {refundStatus ? ` - refund: ${refundStatus}` : ''}
                     </button>
 
-                    {canRefund && (
+                    {refundable && canRefund && (
                       <div className="flex justify-end">
                         <Button
                           variant="ghost"

@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useCan } from '@/auth/auth-context';
 import { NewProgramDialog } from './new-program-dialog';
 import { ProgramEditorDialog } from './program-editor';
 
@@ -268,12 +269,16 @@ function ProgramDetailPane({
   onClose,
   onOpenEditor,
   onDelete,
+  canWrite,
   embedded = false,
 }: {
   programId: string;
   onClose: () => void;
   onOpenEditor: (program: ProgramDoc) => void;
   onDelete: () => void;
+  /// Without `programs:write` this pane is the read-only plan viewer it already
+  /// is for everything below the header - only Edit and Delete come off.
+  canWrite: boolean;
   embedded?: boolean;
 }) {
   const { data: program, isLoading, error } = useProgramDetail(programId);
@@ -299,17 +304,21 @@ function ProgramDetailPane({
       <div className="flex items-center gap-1 border-b border-border py-2.5 pl-[18px] pr-2">
         <span className="text-xs font-bold text-primary">{programId}</span>
         <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!program}
-          onClick={() => program && onOpenEditor(program)}
-        >
-          <SquarePen className="size-[15px]" /> Edit
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete program">
-          <Trash2 className="size-[18px] text-red-400" />
-        </Button>
+        {canWrite && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!program}
+              onClick={() => program && onOpenEditor(program)}
+            >
+              <SquarePen className="size-[15px]" /> Edit
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete program">
+              <Trash2 className="size-[18px] text-red-400" />
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close">
           <X className="size-[18px] text-muted-foreground" />
         </Button>
@@ -454,6 +463,7 @@ export function ProgramsPage() {
   const qc = useQueryClient();
   const { data: rows, isLoading, error } = useProgramList();
   const remove = useDeleteProgram();
+  const canWrite = useCan('programs:write');
 
   // Tailwind's `xl` — the width at which the side pane fits beside the list.
   const wideEnoughForPane = useMediaQuery('(min-width: 1280px)');
@@ -477,9 +487,11 @@ export function ProgramsPage() {
         status={`${rows?.length ?? 0} programs · editing one changes the plan every user follows`}
         className="px-4 pb-3 pt-4"
       >
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus /> New program
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus /> New program
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -563,6 +575,7 @@ export function ProgramsPage() {
               onClose={() => setSelectedId(null)}
               onOpenEditor={setEditing}
               onDelete={() => setDeleting(selectedId)}
+              canWrite={canWrite}
             />
           ) : (
             <Dialog open onOpenChange={(open) => !open && setSelectedId(null)}>
@@ -574,6 +587,7 @@ export function ProgramsPage() {
                   onClose={() => setSelectedId(null)}
                   onOpenEditor={setEditing}
                   onDelete={() => setDeleting(selectedId)}
+                  canWrite={canWrite}
                 />
               </DialogContent>
             </Dialog>

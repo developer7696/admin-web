@@ -1,7 +1,7 @@
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
 import { adminApi, type Json } from '@/lib/api-client';
-import { isCurrentUserAdmin } from '@/auth/admin-auth';
+import { currentUserCan } from '@/auth/admin-auth';
 import { toDate } from '@/lib/format';
 
 /// Articles CRUD, through the admin API.
@@ -86,7 +86,7 @@ export async function createArticle(args: {
   category: string;
   imageFile?: Blob | null;
 }): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
 
   // Created first so the image has an id to live under; the URL is then patched
   // on. Same two-step the Firestore version used.
@@ -111,7 +111,7 @@ export async function updateArticle(args: {
   category: string;
   newImageFile?: Blob | null;
 }): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
 
   const patch: Json = {
     title: args.title,
@@ -130,7 +130,7 @@ export async function updateArticle(args: {
 /// Deletes the article document. The Storage image is deliberately left in
 /// place — a row is cheap to recreate, an unrecoverable image is not.
 export async function deleteArticle(articleId: string): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
   await adminApi.deleteArticle(articleId);
 }
 
@@ -138,6 +138,6 @@ export async function togglePublishStatus(
   articleId: string,
   currentStatus: boolean,
 ): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
   await adminApi.updateArticle(articleId, { isPublished: !currentStatus });
 }

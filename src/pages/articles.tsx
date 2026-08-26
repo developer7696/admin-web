@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
+import { useCan } from '@/auth/auth-context';
 import {
   createArticle,
   deleteArticle,
@@ -174,6 +175,7 @@ export function ArticlesPage() {
   const [creating, setCreating] = useState(false);
 
   const [editing, setEditing] = useState<ArticleRow | null>(null);
+  const canWrite = useCan('articles:write');
   const [details, setDetails] = useState<ArticleRow | null>(null);
   const [deleting, setDeleting] = useState<ArticleRow | null>(null);
 
@@ -238,7 +240,10 @@ export function ArticlesPage() {
         <div className="shrink-0 border-b border-border bg-card px-4 pb-2.5">
           <TabsList>
             <TabsTrigger value="list">All Articles</TabsTrigger>
-            <TabsTrigger value="create">Create New</TabsTrigger>
+            {/* No authoring tab without `articles:write` — the tab is the only
+                way into the create form, so hiding it removes the whole flow
+                rather than leaving a form that fails on submit. */}
+            {canWrite && <TabsTrigger value="create">Create New</TabsTrigger>}
           </TabsList>
         </div>
 
@@ -320,6 +325,7 @@ export function ArticlesPage() {
                     </div>
 
                     <div className="flex">
+                      {canWrite && (
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -347,12 +353,17 @@ export function ArticlesPage() {
                           <Eye className="size-5 text-emerald-600" />
                         )}
                       </Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setEditing(article)}>
-                        <SquarePen className="size-5 text-blue-600" />
-                      </Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(article)}>
-                        <Trash2 className="size-5 text-red-600" />
-                      </Button>
+                      )}
+                      {canWrite && (
+                        <>
+                          <Button variant="ghost" size="icon-sm" onClick={() => setEditing(article)}>
+                            <SquarePen className="size-5 text-blue-600" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(article)}>
+                            <Trash2 className="size-5 text-red-600" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -360,6 +371,7 @@ export function ArticlesPage() {
             })}
           </TabsContent>
 
+          {canWrite && (
           <TabsContent value="create" className="mt-0">
             <Card className="p-5">
               <ArticleForm
@@ -378,6 +390,7 @@ export function ArticlesPage() {
               </Button>
             </Card>
           </TabsContent>
+          )}
         </div>
       </Tabs>
 

@@ -167,14 +167,68 @@ the highest-risk direct-write path in the panel.
 
 ## Auth
 
-Admin access is the `role: 'admin'` **custom claim** on the Firebase ID token —
-not an email allowlist. `auth/admin-auth.ts` signs out any account without it, so
-reaching the panel at all proves the claim is present.
+Admin access is a **custom claim** on the Firebase ID token — not an email
+allowlist. Two keys:
+
+- `role: 'admin'` — may reach the panel at all. Set on every member, readers
+  included, so it no longer distinguishes anybody; it exists because
+  `isAdminUserData`, the user-delete guard and the mobile side still read it.
+- `adm: { r, g, d }` — the **grant**: preset roles, per-user extra grants, and
+  explicit denies. This is what decides what a member can do.
+
+`auth/admin-auth.ts` signs out any account whose grant resolves to nothing, so
+reaching the panel proves at least one permission is present.
 
 The backend additionally requires `email_verified == true`, which the client does
 *not* check. Google sign-in always sets it, but an admin created via
 email/password without verifying would pass the panel's gate and then 403 on
-every API call.
+every API call. The IAM screen refuses to grant to such an account
+(`409 email_unverified`) rather than handing out access that silently does not
+work.
+
+## Permissions
+
+`auth/permissions.ts` is a hand-written port of the backend's
+`src/config/permissions.ts` — the permission list, the preset roles, and the
+resolution order (roles → grants → denies → `:write` implies `:read`). The two
+copies must agree; nothing generates one from the other, same as `constants.ts`
+and the plan keys.
+
+**This copy decides nothing.** It picks which nav entries to draw and which Save
+buttons to render. Every call the panel makes is re-checked server-side by
+`requirePermission`, so a disagreement costs a user an error toast instead of a
+hidden button — never access.
+
+Three places consume it:
+
+- `app/nav.tsx` — each entry carries the READ permission that makes it visible.
+  `visibleSections` filters the sidebar; `landingPath` computes where to send
+  someone, because `/dashboard` is not a safe default for an account that cannot
+  open it.
+- `App.tsx` — `RequirePermission` wraps every route element, so typing a URL is
+  no different from clicking the entry.
+- The panes themselves — `useCan('exercises:write')` and friends. Mutating
+  controls are **hidden, not disabled**: a greyed-out Delete on a catalogue you
+  can only read is noise.
+
+`/iam` (Access & Roles) is the front end of the `adm` claim: `iam:read` to see
+the roster, `iam:write` — Super Admin only — to change it. Saving writes the
+claim server-side and revokes the target's refresh tokens, so a change lands on
+their next request rather than whenever their token happens to expire.
+
+### The gap
+
+Permission checks on `users`, `payments`, `complaints`, `recipes` and the workout
+tracker are **UI-only**. Those panes write Firestore directly (see *Not yet
+migrated* above), and the deployed Firestore rules allow any authenticated write
+— no `firestore.rules` exists in either repo. So a determined holder of a
+Firebase token can still write those collections regardless of what this panel
+shows them.
+
+Everything behind `/api/admin/*` — exercises, programs, articles, vouchers,
+billing, IAM — is genuinely enforced. Closing the rest means moving those panes
+behind the API, or writing a rules file, which has to be audited against the
+mobile app's Firestore usage first.
 
 ## Not ported
 
