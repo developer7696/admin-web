@@ -25,6 +25,7 @@ import {
   type RecipeRow,
 } from '@/services/recipes-service';
 import { fmtDateTime, toDate } from '@/lib/format';
+import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
@@ -419,6 +420,7 @@ export function RecipesPage() {
   const [creating, setCreating] = useState(false);
 
   const [editing, setEditing] = useState<RecipeRow | null>(null);
+  const canWrite = useCan('recipes:write');
   const [details, setDetails] = useState<RecipeRow | null>(null);
   const [deleting, setDeleting] = useState<RecipeRow | null>(null);
 
@@ -482,7 +484,9 @@ export function RecipesPage() {
         <div className="shrink-0 border-b border-border bg-card px-4 pb-2.5">
           <TabsList>
             <TabsTrigger value="list">All Recipes</TabsTrigger>
-            <TabsTrigger value="create">Create Recipe</TabsTrigger>
+            {/* The authoring tab is the only route into the create form, so
+                without `recipes:write` it goes rather than being disabled. */}
+            {canWrite && <TabsTrigger value="create">Create Recipe</TabsTrigger>}
           </TabsList>
         </div>
 
@@ -561,6 +565,7 @@ export function RecipesPage() {
                     </div>
 
                     <div className="flex">
+                      {canWrite && (
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -584,12 +589,17 @@ export function RecipesPage() {
                           <Eye className="size-5 text-emerald-600" />
                         )}
                       </Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setEditing(recipe)}>
-                        <SquarePen className="size-5 text-blue-600" />
-                      </Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(recipe)}>
-                        <Trash2 className="size-5 text-red-600" />
-                      </Button>
+                      )}
+                      {canWrite && (
+                        <>
+                          <Button variant="ghost" size="icon-sm" onClick={() => setEditing(recipe)}>
+                            <SquarePen className="size-5 text-blue-600" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(recipe)}>
+                            <Trash2 className="size-5 text-red-600" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -597,6 +607,7 @@ export function RecipesPage() {
             })}
           </TabsContent>
 
+          {canWrite && (
           <TabsContent value="create" className="mt-0">
             <Card className="p-5">
               <RecipeForm
@@ -616,6 +627,7 @@ export function RecipesPage() {
               </Button>
             </Card>
           </TabsContent>
+          )}
         </div>
       </Tabs>
 

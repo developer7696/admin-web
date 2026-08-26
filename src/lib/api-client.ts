@@ -1,6 +1,9 @@
 import { auth } from './firebase';
 
-const API_BASE_URL = 'https://api.aarambh.app';
+/// Deployed API by default. Overridable so the panel can be pointed at a local
+/// server — needed whenever it depends on an endpoint that has not shipped yet,
+/// which is otherwise a "Route not found" against production.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://api.aarambh.app';
 
 const NETWORK_MESSAGE =
   "Couldn't reach the server. Please check your internet connection and try again.";
@@ -407,4 +410,31 @@ export const adminApi = {
   /// Article category chips. Same document the app uses
   /// (`GET /api/content/article-categories`).
   articleCategories: () => send('GET', '/api/content/article-categories'),
+
+  // ── IAM (Super Admin) ─────────────────────────────────────────────────────
+  // Who may use this panel, and for what. Reading the roster needs `iam:read`;
+  // every write needs `iam:write`, which only Super Admin holds.
+
+  /// The permission and role catalogue the SERVER enforces. Fetched rather than
+  /// read from `auth/permissions.ts` so the screen shows what is actually being
+  /// applied, not this build's copy of it.
+  iamCatalog: () => send('GET', '/api/admin/iam/roles'),
+
+  /// Everyone who holds - or held - admin access. Revoked rows are included,
+  /// flagged with `revokedAt`.
+  iamMembers: () => send('GET', '/api/admin/iam/members'),
+
+  /// Resolve an email to an account before granting it access. 404 when no such
+  /// account exists, which is the check against granting to a typo.
+  iamLookup: (email: string) =>
+    send('GET', `/api/admin/iam/lookup?email=${encodeURIComponent(email)}`),
+
+  /// REPLACE a member's grant - send the complete set, not a patch. An omitted
+  /// role is a removed role.
+  iamSetMember: (uid: string, body: Json) => send('PUT', `/api/admin/iam/members/${uid}`, body),
+
+  /// Revoke all access. Soft: the roster row survives with `revokedAt` set, so
+  /// "who used to have access" stays answerable.
+  iamRevokeMember: (uid: string, reason?: string) =>
+    send('DELETE', `/api/admin/iam/members/${uid}`, reason ? { reason } : {}),
 };

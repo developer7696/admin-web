@@ -1,9 +1,12 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/auth/auth-context';
+import { landingPath } from '@/app/nav';
 import { Shell } from '@/app/shell';
 import { LoginPage } from '@/pages/login';
+import { NoAccessPage, RequirePermission } from '@/components/common/require-permission';
+import type { Permission } from '@/auth/permissions';
 
 /// Every pane is loaded on demand.
 ///
@@ -50,6 +53,7 @@ const UserBillingPage = lazy(() =>
 const UserWorkoutTrackerPage = lazy(() =>
   import('@/pages/user-workout-tracker').then((m) => ({ default: m.UserWorkoutTrackerPage })),
 );
+const IamPage = lazy(() => import('@/pages/iam').then((m) => ({ default: m.IamPage })));
 
 /// Pathless layout route whose only job is to give the lazy panes a Suspense
 /// boundary that sits INSIDE the shell's scroll container.
@@ -65,10 +69,19 @@ function FullScreenSpinner() {
   );
 }
 
+/// A pane and the permission needed to open it.
+///
+/// The guard wraps the element rather than the route, so the redirect happens
+/// after the router has matched — which is what lets a denied `/users/:uid/billing`
+/// bounce to a pane the user *can* see instead of falling through to the catch-all.
+const guarded = (permission: Permission, element: ReactNode) => (
+  <RequirePermission permission={permission}>{element}</RequirePermission>
+);
+
 /// Routes to the dashboard or the login screen based on auth state — the direct
 /// equivalent of the Flutter `_AuthGate`.
 export function App() {
-  const { user, loading, error } = useAuth();
+  const { user, loading, error, perms } = useAuth();
 
   if (loading) {
     return (
@@ -88,6 +101,11 @@ export function App() {
 
   if (!user) return <LoginPage />;
 
+  // Where "/" and anything unrecognised lands. Computed from the grant, because
+  // /dashboard is not a safe default any more: an account without
+  // `analytics:read` cannot open it, and redirecting there would loop.
+  const home = landingPath(perms);
+
   return (
     <Routes>
       {/* One Suspense boundary inside the shell, not around it: the sidebar and
@@ -101,28 +119,40 @@ export function App() {
             </Suspense>
           }
         >
-          <Route path="/dashboard" element={<DashboardHome />} />
-          <Route path="/vouchers" element={<VouchersPage />} />
+          <Route path="/dashboard" element={guarded('analytics:read', <DashboardHome />)} />
+          <Route path="/vouchers" element={guarded('vouchers:read', <VouchersPage />)} />
           {/* Command Center was folded into the Dashboard — it had become the same
               numbers under a filter, and three screens disagreeing about "active"
               was worse than one screen with a filter row. Redirected rather than
               removed so existing links and bookmarks still land somewhere. */}
           <Route path="/growth" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/conversion" element={<ConversionPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/users/:uid/billing" element={<UserBillingPage />} />
-          <Route path="/users/:uid/workouts" element={<UserWorkoutTrackerPage />} />
-          <Route path="/payments" element={<PaymentsPage />} />
-          <Route path="/apple-links" element={<AppleLinksPage />} />
-          <Route path="/complaints" element={<ComplaintsPage />} />
-          <Route path="/recipes" element={<RecipesPage />} />
-          <Route path="/programs" element={<ProgramsPage />} />
-          <Route path="/programs/:id" element={<ProgramsPage />} />
-          <Route path="/exercises" element={<ExerciseCataloguePage />} />
-          <Route path="/articles" element={<ArticlesPage />} />
+          <Route path="/conversion" element={guarded('analytics:read', <ConversionPage />)} />
+          <Route path="/users" element={guarded('users:read', <UsersPage />)} />
+          {/* Billing detail is a money screen, so it takes billing:read — not the
+              users:read that got you to the row it is linked from. */}
+          <Route
+            path="/users/:uid/billing"
+            element={guarded('billing:read', <UserBillingPage />)}
+          />
+          <Route
+            path="/users/:uid/workouts"
+            element={guarded('users:read', <UserWorkoutTrackerPage />)}
+          />
+          <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
+          <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
+          <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />
+          <Route path="/recipes" element={guarded('recipes:read', <RecipesPage />)} />
+          <Route path="/programs" element={guarded('programs:read', <ProgramsPage />)} />
+          <Route path="/programs/:id" element={guarded('programs:read', <ProgramsPage />)} />
+          <Route path="/exercises" element={guarded('exercises:read', <ExerciseCataloguePage />)} />
+          <Route path="/articles" element={guarded('articles:read', <ArticlesPage />)} />
+          <Route path="/iam" element={guarded('iam:read', <IamPage />)} />
+          {/* Not guarded, and must not be: it is where the guard sends an account
+              that can open nothing. Guarding it would be the redirect loop. */}
+          <Route path="/no-access" element={<NoAccessPage />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );
 }

@@ -12,7 +12,10 @@ import {
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, storage } from '@/lib/firebase';
-import { isCurrentUserAdmin } from '@/auth/admin-auth';
+// `currentUserCan` rather than the old `isCurrentUserAdmin`: that helper now
+// means "holds ANY permission", so a reader would sail straight past it. These
+// are client-side pre-checks only — see ARCHITECTURE.md "The gap".
+import { currentUserCan } from '@/auth/admin-auth';
 import { adminApi } from '@/lib/api-client';
 
 /// The `recipes` collection, written directly from the browser (same pattern as
@@ -85,7 +88,7 @@ async function deleteImage(imageUrl: string): Promise<void> {
 }
 
 export async function createRecipe(input: RecipeInput, imageFile?: Blob | null): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
   const user = auth.currentUser;
   if (!user) throw new Error('Please login to create a recipe');
 
@@ -114,7 +117,7 @@ export async function updateRecipe(
   input: RecipeInput,
   opts: { newImageFile?: Blob | null; currentImageUrl?: string | null } = {},
 ): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
 
   const update: Record<string, unknown> = { ...input, updatedAt: new Date() };
 
@@ -128,13 +131,13 @@ export async function updateRecipe(
 }
 
 export async function deleteRecipe(recipeId: string, imageUrl?: string | null): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
   if (imageUrl) await deleteImage(imageUrl);
   await deleteDoc(doc(db, 'recipes', recipeId));
 }
 
 export async function togglePublishStatus(recipeId: string, currentStatus: boolean): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
   await updateDoc(doc(db, 'recipes', recipeId), {
     isPublished: !currentStatus,
     updatedAt: new Date(),
@@ -150,7 +153,7 @@ export type RecipeStats = {
 
 export async function getRecipeStatistics(): Promise<RecipeStats> {
   const empty: RecipeStats = { total: 0, published: 0, unpublished: 0, totalViews: 0 };
-  if (!isCurrentUserAdmin()) return empty;
+  if (!currentUserCan('recipes:read')) return empty;
 
   try {
     const snapshot = await getDocs(collection(db, 'recipes'));

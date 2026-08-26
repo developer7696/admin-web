@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertCircle, ArrowLeftRight, HelpCircle, Loader2, Receipt, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminApi, ApiException, type Json } from '@/lib/api-client';
+import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { PageBar } from '@/components/common/page-header';
@@ -48,6 +49,10 @@ export function AppleLinksPage() {
   /// "searched and found nothing", which mean very different things here.
   const [result, setResult] = useState<Json | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // Looking up who owns a subscription is `billing:read` - it is the answer to
+  // "the user paid and has nothing". MOVING it drops the previous owner to
+  // Free, so the whole transfer form needs `billing:write`.
+  const canTransfer = useCan('billing:write');
 
   async function lookup() {
     const id = transactionId.trim();
@@ -176,6 +181,8 @@ export function AppleLinksPage() {
                 </p>
               </div>
 
+              {canTransfer && (
+              <>
               <div className="my-8 h-px bg-border" />
 
               <p className="text-[15px] font-bold">Move it to another account</p>
@@ -214,6 +221,8 @@ export function AppleLinksPage() {
                   <ArrowLeftRight /> Move subscription
                 </Button>
               </div>
+              </>
+              )}
             </Card>
           ))}
       </div>

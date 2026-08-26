@@ -11,7 +11,10 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { isCurrentUserAdmin } from '@/auth/admin-auth';
+// `currentUserCan` rather than the old `isCurrentUserAdmin`: that helper now
+// means "holds ANY permission", so a reader would sail straight past it. These
+// are client-side pre-checks only — see ARCHITECTURE.md "The gap".
+import { currentUserCan } from '@/auth/admin-auth';
 import { adminApi } from '@/lib/api-client';
 
 /// Admin-relevant subset of the mobile app's customer-support service (the
@@ -61,7 +64,7 @@ export async function updateComplaintStatus(args: {
   status: string;
   adminResponse?: string | null;
 }): Promise<boolean> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('complaints:write')) throw new Error('Unauthorized access');
 
   const update: Record<string, unknown> = {
     status: args.status,
@@ -80,14 +83,14 @@ export async function updateComplaintPriority(
   complaintId: string,
   priority: string,
 ): Promise<boolean> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('complaints:write')) throw new Error('Unauthorized access');
   await updateDoc(doc(db, 'complaints', complaintId), { priority, updatedAt: new Date() });
   return true;
 }
 
 /// Best-effort: a failed read-receipt must not interrupt opening the complaint.
 export async function markComplaintAsRead(complaintId: string): Promise<void> {
-  if (!isCurrentUserAdmin()) return;
+  if (!currentUserCan('complaints:write')) return;
   try {
     await updateDoc(doc(db, 'complaints', complaintId), { isRead: true, updatedAt: new Date() });
   } catch {
@@ -96,7 +99,7 @@ export async function markComplaintAsRead(complaintId: string): Promise<void> {
 }
 
 export async function deleteComplaint(complaintId: string): Promise<void> {
-  if (!isCurrentUserAdmin()) throw new Error('Unauthorized access');
+  if (!currentUserCan('complaints:write')) throw new Error('Unauthorized access');
   await deleteDoc(doc(db, 'complaints', complaintId));
 }
 
@@ -118,7 +121,7 @@ export async function getComplaintStatistics(): Promise<ComplaintStats> {
     closed: 0,
     unread: 0,
   };
-  if (!isCurrentUserAdmin()) return empty;
+  if (!currentUserCan('complaints:read')) return empty;
 
   try {
     const snapshot = await getDocs(collection(db, 'complaints'));

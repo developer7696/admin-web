@@ -49,6 +49,7 @@ import {
 import { HeaderSlot } from '@/app/header-slot';
 import { downloadCsv } from '@/lib/csv';
 import { fmtDateBulletTime, fmtDateShort, toDate } from '@/lib/format';
+import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { SearchInput } from '@/components/common/search-input';
 import { EmptyState, LoadingState } from '@/components/common/states';
@@ -224,7 +225,9 @@ function UserIntakeDialog({
 }: {
   user: UserRow;
   onClose: () => void;
-  onPhotoAction: () => void;
+  /// null when the viewer only holds `users:read` — the camera badge on the
+  /// avatar is the only way into the photo editor, so it disappears with it.
+  onPhotoAction: (() => void) | null;
 }) {
   const navigate = useNavigate();
 
@@ -250,14 +253,16 @@ function UserIntakeDialog({
         <DialogHeader className="flex-row items-center gap-5">
           <div className="relative">
             <Avatar user={user} size={70} />
-            <button
-              type="button"
-              onClick={onPhotoAction}
-              className="absolute bottom-0 right-0 rounded-full border-2 border-card bg-primary p-1 text-primary-foreground"
-              aria-label="Manage profile photo"
-            >
-              <Camera className="size-3" />
-            </button>
+            {onPhotoAction && (
+              <button
+                type="button"
+                onClick={onPhotoAction}
+                className="absolute bottom-0 right-0 rounded-full border-2 border-card bg-primary p-1 text-primary-foreground"
+                aria-label="Manage profile photo"
+              >
+                <Camera className="size-3" />
+              </button>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-2xl font-black">{user.username}</DialogTitle>
@@ -403,6 +408,12 @@ export function UsersPage() {
   const [accessTier, setAccessTier] = useState<'Premium' | 'Basic' | null>(null);
   const [terminating, setTerminating] = useState<UserRow | null>(null);
   const [deletingRecord, setDeletingRecord] = useState<DeletionRow | null>(null);
+  // Two different permissions on one screen. Editing or removing an ACCOUNT is
+  // `users:write`; granting or removing a SUBSCRIPTION is money, so it takes
+  // `billing:write` - the same permission the refund screen needs. A support
+  // agent with users:read gets a directory they can read and search.
+  const canWriteUsers = useCan('users:write');
+  const canWriteBilling = useCan('billing:write');
 
   const fileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -790,13 +801,15 @@ export function UsersPage() {
                           {fmtDateBulletTime(record.date)}
                         </p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setDeletingRecord(record)}
-                      >
-                        <Trash2 className="size-[18px] text-red-500" />
-                      </Button>
+                      {canWriteUsers && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => setDeletingRecord(record)}
+                        >
+                          <Trash2 className="size-[18px] text-red-500" />
+                        </Button>
+                      )}
                     </div>
                     <div className="my-2.5 h-px bg-border" />
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.5px] text-muted-foreground">
@@ -875,14 +888,16 @@ export function UsersPage() {
                         >
                           <HeartPulse className="size-4 text-primary/60" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title="Manage Access"
-                          onClick={() => setAccessUser(user)}
-                        >
-                          <SquarePen className="size-4 text-slate-400" />
-                        </Button>
+                        {canWriteBilling && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Manage Access"
+                            onClick={() => setAccessUser(user)}
+                          >
+                            <SquarePen className="size-4 text-slate-400" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -891,6 +906,7 @@ export function UsersPage() {
                         >
                           <Link2 className="size-4 text-slate-400" />
                         </Button>
+                        {canWriteUsers && (
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -899,6 +915,7 @@ export function UsersPage() {
                         >
                           <Trash2 className="size-4 text-slate-400" />
                         </Button>
+                        )}
                       </div>
                     </div>
                   </Card>
@@ -912,7 +929,7 @@ export function UsersPage() {
         <UserIntakeDialog
           user={intakeUser}
           onClose={() => setIntakeUser(null)}
-          onPhotoAction={() => setPhotoUser(intakeUser)}
+          onPhotoAction={canWriteUsers ? () => setPhotoUser(intakeUser) : null}
         />
       )}
 

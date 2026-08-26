@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { PLAN_KEYS, planKeyLabel } from '@/lib/constants';
 import { fmtDayMonth, fmtDayMonthYear, fmtDayMonthYearTime, rupeesFromPaise } from '@/lib/format';
 import { ApiException } from '@/lib/api-client';
+import { useCan } from '@/auth/auth-context';
 import {
   useDeactivateVoucher,
   useVoucherRedemptions,
@@ -144,11 +145,16 @@ function VoucherCard({
   onEdit,
   onRedemptions,
   onDeactivate,
+  canWrite,
 }: {
   voucher: VoucherModel;
   onEdit: () => void;
   onRedemptions: () => void;
   onDeactivate: () => void;
+  /// Redemptions stays available to a reader - it is the ledger, and answering
+  /// "did this code work for them?" is exactly what `vouchers:read` is for.
+  /// Edit and Deactivate are the ones that need `vouchers:write`.
+  canWrite: boolean;
 }) {
   const entitlement = isEntitlement(v);
   const platforms = discountPlatforms(v);
@@ -182,13 +188,15 @@ function VoucherCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onEdit}>
-              <SquarePen /> Edit
-            </DropdownMenuItem>
+            {canWrite && (
+              <DropdownMenuItem onSelect={onEdit}>
+                <SquarePen /> Edit
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={onRedemptions}>
               <Receipt /> Redemptions
             </DropdownMenuItem>
-            {v.isActive && (
+            {canWrite && v.isActive && (
               <DropdownMenuItem destructive onSelect={onDeactivate}>
                 <Ban /> Deactivate
               </DropdownMenuItem>
@@ -318,6 +326,7 @@ export function VouchersPage() {
   const { data: all, isLoading, isError, error, refetch } = useVouchers(params);
   const { data: stats } = useVoucherStats();
   const deactivate = useDeactivateVoucher();
+  const canWrite = useCan('vouchers:write');
 
   const filtered = useMemo(() => {
     if (!all) return [];
@@ -375,15 +384,17 @@ export function VouchersPage() {
         }
         className="px-4 pb-2.5 pt-4"
       >
-        <Button
-          size="sm"
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        >
-          <Plus /> New voucher
-        </Button>
+        {canWrite && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus /> New voucher
+          </Button>
+        )}
       </PageBar>
 
       <div className="flex flex-wrap items-center gap-1.5 px-4">
@@ -422,7 +433,7 @@ export function VouchersPage() {
                 : 'Try clearing the search or filters.'
             }
             action={
-              all.length === 0 ? (
+              all.length === 0 && canWrite ? (
                 <Button
                   onClick={() => {
                     setEditing(null);
@@ -446,6 +457,7 @@ export function VouchersPage() {
             }}
             onRedemptions={() => setRedemptionsFor(v)}
             onDeactivate={() => setDeactivating(v)}
+            canWrite={canWrite}
           />
         ))}
       </div>
