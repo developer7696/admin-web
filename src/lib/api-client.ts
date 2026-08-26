@@ -1,6 +1,9 @@
 import { auth } from './firebase';
 
-const API_BASE_URL = 'https://api.aarambh.app';
+/// Deployed API by default. Overridable so the panel can be pointed at a local
+/// server — needed whenever it depends on an endpoint that has not shipped yet,
+/// which is otherwise a "Route not found" against production.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://api.aarambh.app';
 
 const NETWORK_MESSAGE =
   "Couldn't reach the server. Please check your internet connection and try again.";
