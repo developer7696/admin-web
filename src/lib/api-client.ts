@@ -277,6 +277,58 @@ export const adminApi = {
       ...(args.reason ? { reason: args.reason } : {}),
     }),
 
+  // ── Workouts ──────────────────────────────────────────────────────────────
+  // The panel used to walk `users/{uid}/programs/{p}/weeks/{w}/days/{d}` from
+  // the browser — over a hundred sequential round trips for one active user,
+  // and no way at all to ask "who trained today" across users. Both questions
+  // are answered server-side now.
+
+  /// Cross-user feed of completed sessions, newest first. Cursor-paged: pass
+  /// the previous response's `nextCursor` back as `cursor`; null means the end.
+  ///
+  /// `from`/`to` go as plain `YYYY-MM-DD` in the admin's own timezone, with the
+  /// offset alongside — an ISO instant would shift the boundary and move an
+  /// evening workout into the neighbouring day.
+  workoutLogs: (query: {
+    limit?: number;
+    cursor?: string | null;
+    from?: Date | null;
+    to?: Date | null;
+    uid?: string | null;
+  }) => {
+    const qs = new URLSearchParams({
+      limit: String(query.limit ?? 50),
+      utcOffsetMinutes: String(-new Date().getTimezoneOffset()),
+    });
+    if (query.cursor) qs.set('cursor', query.cursor);
+    if (query.from) qs.set('from', localDate(query.from));
+    if (query.to) qs.set('to', localDate(query.to));
+    if (query.uid) qs.set('uid', query.uid);
+    return send('GET', `/api/admin/workouts/logs?${qs.toString()}`, undefined, 45_000);
+  },
+
+  /// One user's stats and session history. `full: false` omits the per-exercise
+  /// sets, which is four fewer Firestore reads per session.
+  userWorkouts: (uid: string, query?: { days?: number; full?: boolean }) => {
+    const qs = new URLSearchParams({
+      days: String(query?.days ?? 90),
+      full: String(query?.full ?? true),
+    });
+    return send('GET', `/api/admin/workouts/users/${uid}?${qs.toString()}`, undefined, 45_000);
+  },
+
+  /// One session's exercise detail, for a feed row the admin expanded.
+  workoutSession: (args: {
+    uid: string;
+    programId: string;
+    weekId: string;
+    dayId: string;
+  }) =>
+    send(
+      'GET',
+      `/api/admin/workouts/users/${args.uid}/sessions/${args.programId}/${args.weekId}/${args.dayId}`,
+    ),
+
   // ── Articles ──────────────────────────────────────────────────────────────
 
   /// Every article newest-first, plus aggregate stats and the category list.

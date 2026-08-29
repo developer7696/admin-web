@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  Activity,
   CalendarDays,
   CreditCard,
   Dumbbell,
@@ -39,6 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
     entries: [
       { label: 'Conversion', icon: TrendingUp, path: '/conversion', permission: 'analytics:read' },
       { label: 'Users', icon: Users, path: '/users', permission: 'users:read' },
+      { label: 'Workout Logs', icon: Activity, path: '/workout-logs', permission: 'users:read' },
       { label: 'Payments', icon: CreditCard, path: '/payments', permission: 'billing:read' },
       { label: 'Apple Links', icon: Link2, path: '/apple-links', permission: 'billing:read' },
     ],

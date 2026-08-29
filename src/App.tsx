@@ -53,6 +53,9 @@ const UserBillingPage = lazy(() =>
 const UserWorkoutTrackerPage = lazy(() =>
   import('@/pages/user-workout-tracker').then((m) => ({ default: m.UserWorkoutTrackerPage })),
 );
+const WorkoutLogsPage = lazy(() =>
+  import('@/pages/workout-logs').then((m) => ({ default: m.WorkoutLogsPage })),
+);
 const IamPage = lazy(() => import('@/pages/iam').then((m) => ({ default: m.IamPage })));
 
 /// Pathless layout route whose only job is to give the lazy panes a Suspense
@@ -138,6 +141,9 @@ export function App() {
             path="/users/:uid/workouts"
             element={guarded('users:read', <UserWorkoutTrackerPage />)}
           />
+          {/* The cross-user feed. Same users:read as the per-user history it
+              links into — it is the same data, listed the other way round. */}
+          <Route path="/workout-logs" element={guarded('users:read', <WorkoutLogsPage />)} />
           <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
           <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
           <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />
