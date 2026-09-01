@@ -459,6 +459,14 @@ export const adminApi = {
   /// (`GET /api/content/recipe-filters`).
   recipeFilters: () => send('GET', '/api/content/recipe-filters'),
 
+  /// Recipe image upload: same permit-then-confirm shape as program covers.
+  /// The bytes go browser → Azure on the returned SAS URL; confirm is what
+  /// writes `imageUrl` onto the recipe document, server-side.
+  recipeImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/recipes/${id}/image/upload-url`, { extension }),
+  recipeImageUploadConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/recipes/${id}/image/confirm`, { path }),
+
   /// Article category chips. Same document the app uses
   /// (`GET /api/content/article-categories`).
   articleCategories: () => send('GET', '/api/content/article-categories'),

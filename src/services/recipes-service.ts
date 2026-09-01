@@ -10,16 +10,22 @@ import {
   updateDoc,
   type DocumentData,
 } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, ref } from 'firebase/storage';
 import { auth, db, storage } from '@/lib/firebase';
 // `currentUserCan` rather than the old `isCurrentUserAdmin`: that helper now
 // means "holds ANY permission", so a reader would sail straight past it. These
 // are client-side pre-checks only — see ARCHITECTURE.md "The gap".
 import { currentUserCan } from '@/auth/admin-auth';
-import { adminApi } from '@/lib/api-client';
+import { adminApi, ApiException } from '@/lib/api-client';
+import { putToAzure } from './exercise-catalog-repository';
 
 /// The `recipes` collection, written directly from the browser (same pattern as
-/// the mobile app). Images live in Firebase Storage under `recipes/{id}/`.
+/// the mobile app). Images live in Azure under `recipe_images/{id}.{ext}` in
+/// the public-read container: the browser asks the API for a one-blob write
+/// SAS, PUTs the bytes straight to Azure, and the confirm endpoint - which
+/// verifies the blob landed - writes `imageUrl` onto the document server-side.
+/// Pre-migration recipes may still point at Firebase Storage; those blobs are
+/// left in place.
 
 export type RecipeRow = DocumentData & { id: string };
 
@@ -66,19 +72,37 @@ export function subscribeRecipes(
   );
 }
 
-async function uploadImage(file: Blob, recipeId: string): Promise<string | null> {
-  try {
-    const objectRef = ref(storage, `recipes/${recipeId}/${Date.now()}.jpg`);
-    const snapshot = await uploadBytes(objectRef, file, { contentType: 'image/jpeg' });
-    return await getDownloadURL(snapshot.ref);
-  } catch {
-    return null;
+const EXT_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/// Permit → PUT → confirm. The confirm writes `imageUrl` server-side, so this
+/// deliberately does not touch the document; failures throw so the dialog can
+/// say why, instead of silently saving the recipe with no image.
+async function uploadImage(file: Blob, recipeId: string): Promise<void> {
+  const extension = EXT_BY_TYPE[file.type];
+  if (!extension) {
+    throw new ApiException(0, 'unsupported_media_type', 'Images must be JPEG, PNG or WebP.');
   }
+
+  const ticket = await adminApi.recipeImageUploadUrl(recipeId, extension);
+  const uploadUrl = String(ticket.uploadUrl ?? '');
+  const path = String(ticket.path ?? '');
+  if (!uploadUrl || !path) {
+    throw new ApiException(0, 'upload_ticket', 'The server did not return an upload URL.');
+  }
+
+  await putToAzure(uploadUrl, String(ticket.contentType ?? file.type), file);
+  await adminApi.recipeImageUploadConfirm(recipeId, path);
 }
 
 /// Best-effort: an orphaned blob is cheaper than a failed recipe write.
-/// `ref(storage, url)` accepts a full gs:// or https download URL, which is what
-/// the stored `imageUrl` is.
+/// `ref(storage, url)` accepts a full gs:// or https download URL, which is
+/// what a pre-migration `imageUrl` is. An Azure URL makes it throw, which the
+/// catch turns into the intended no-op — Azure blobs are never deleted from
+/// the browser.
 async function deleteImage(imageUrl: string): Promise<void> {
   try {
     await deleteObject(ref(storage, imageUrl));
@@ -92,8 +116,8 @@ export async function createRecipe(input: RecipeInput, imageFile?: Blob | null):
   const user = auth.currentUser;
   if (!user) throw new Error('Please login to create a recipe');
 
-  // Created first so the image has an id to live under; the URL is then patched
-  // on — the same two-step the mobile app uses.
+  // Created first so the image has an id to live under; the confirm endpoint
+  // then writes `imageUrl` onto the document server-side.
   const recipeRef = await addDoc(collection(db, 'recipes'), {
     ...input,
     authorId: user.uid,
@@ -106,28 +130,22 @@ export async function createRecipe(input: RecipeInput, imageFile?: Blob | null):
     views: 0,
   });
 
-  if (imageFile) {
-    const imageUrl = await uploadImage(imageFile, recipeRef.id);
-    if (imageUrl) await updateDoc(recipeRef, { imageUrl });
-  }
+  if (imageFile) await uploadImage(imageFile, recipeRef.id);
 }
 
 export async function updateRecipe(
   recipeId: string,
   input: RecipeInput,
-  opts: { newImageFile?: Blob | null; currentImageUrl?: string | null } = {},
+  opts: { newImageFile?: Blob | null } = {},
 ): Promise<void> {
   if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
 
-  const update: Record<string, unknown> = { ...input, updatedAt: new Date() };
+  // A replaced image overwrites its Azure blob in place (stable name, fresh
+  // `?v=` stamp), and a legacy Firebase blob is simply left behind — so there
+  // is nothing to delete here.
+  if (opts.newImageFile) await uploadImage(opts.newImageFile, recipeId);
 
-  if (opts.newImageFile) {
-    if (opts.currentImageUrl) await deleteImage(opts.currentImageUrl);
-    const newImageUrl = await uploadImage(opts.newImageFile, recipeId);
-    if (newImageUrl) update.imageUrl = newImageUrl;
-  }
-
-  await updateDoc(doc(db, 'recipes', recipeId), update);
+  await updateDoc(doc(db, 'recipes', recipeId), { ...input, updatedAt: new Date() });
 }
 
 export async function deleteRecipe(recipeId: string, imageUrl?: string | null): Promise<void> {
