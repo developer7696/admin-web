@@ -794,10 +794,7 @@ function EditRecipeDialog({
   async function save() {
     setBusy(true);
     try {
-      await updateRecipe(recipe.id, toInput(form), {
-        newImageFile: imageFile,
-        currentImageUrl: recipe.imageUrl as string | undefined,
-      });
+      await updateRecipe(recipe.id, toInput(form), { newImageFile: imageFile });
       toast.success('Recipe updated successfully!');
       onSaved();
       onClose();
