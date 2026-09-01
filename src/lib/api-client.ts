@@ -471,6 +471,14 @@ export const adminApi = {
   /// (`GET /api/content/article-categories`).
   articleCategories: () => send('GET', '/api/content/article-categories'),
 
+  /// Article image upload: same permit-then-confirm shape as recipe images.
+  /// The bytes go browser → Azure on the returned SAS URL; confirm is what
+  /// writes `imageUrl` onto the article document, server-side.
+  articleImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/articles/${id}/image/upload-url`, { extension }),
+  articleImageUploadConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/articles/${id}/image/confirm`, { path }),
+
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
   // every write needs `iam:write`, which only Super Admin holds.
