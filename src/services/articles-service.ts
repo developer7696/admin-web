@@ -1,8 +1,7 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from '@/lib/firebase';
-import { adminApi, type Json } from '@/lib/api-client';
+import { adminApi, ApiException, type Json } from '@/lib/api-client';
 import { currentUserCan } from '@/auth/admin-auth';
 import { toDate } from '@/lib/format';
+import { putToAzure } from './exercise-catalog-repository';
 
 /// Articles CRUD, through the admin API.
 ///
@@ -12,8 +11,11 @@ import { toDate } from '@/lib/format';
 /// The Firestore rules currently allow any signed-in user to write any document,
 /// so browser-side writes were enforced by nothing.
 ///
-/// Images still go to Firebase Storage from here — that path is unchanged and is
-/// a separate migration.
+/// Images go to Azure the same way recipe images do: the browser asks the API
+/// for a one-blob write SAS (`article_images/{id}.{ext}`), PUTs the bytes
+/// straight to Azure, and the confirm endpoint — which verifies the blob
+/// landed — writes `imageUrl` onto the document server-side. Pre-migration
+/// articles may still point at Firebase Storage; those blobs are left in place.
 
 export type ArticleRow = Json & {
   id: string;
@@ -70,14 +72,30 @@ export async function listArticles(): Promise<ArticlesPayload> {
   };
 }
 
-async function uploadImage(file: Blob, articleId: string): Promise<string | null> {
-  try {
-    const objectRef = ref(storage, `articles/${articleId}/${Date.now()}.jpg`);
-    const snapshot = await uploadBytes(objectRef, file, { contentType: 'image/jpeg' });
-    return await getDownloadURL(snapshot.ref);
-  } catch {
-    return null;
+const EXT_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/// Permit → PUT → confirm. The confirm writes `imageUrl` server-side, so this
+/// deliberately does not patch the document; failures throw so the dialog can
+/// say why, instead of silently saving the article with no image.
+async function uploadImage(file: Blob, articleId: string): Promise<void> {
+  const extension = EXT_BY_TYPE[file.type];
+  if (!extension) {
+    throw new ApiException(0, 'unsupported_media_type', 'Images must be JPEG, PNG or WebP.');
   }
+
+  const ticket = await adminApi.articleImageUploadUrl(articleId, extension);
+  const uploadUrl = String(ticket.uploadUrl ?? '');
+  const path = String(ticket.path ?? '');
+  if (!uploadUrl || !path) {
+    throw new ApiException(0, 'upload_ticket', 'The server did not return an upload URL.');
+  }
+
+  await putToAzure(uploadUrl, String(ticket.contentType ?? file.type), file);
+  await adminApi.articleImageUploadConfirm(articleId, path);
 }
 
 export async function createArticle(args: {
@@ -88,8 +106,8 @@ export async function createArticle(args: {
 }): Promise<void> {
   if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
 
-  // Created first so the image has an id to live under; the URL is then patched
-  // on. Same two-step the Firestore version used.
+  // Created first so the image has an id to live under; the confirm endpoint
+  // then writes `imageUrl` onto the document server-side.
   const created = await adminApi.createArticle({
     title: args.title,
     content: args.content,
@@ -98,10 +116,7 @@ export async function createArticle(args: {
   const article = (created.article ?? {}) as Json;
   const articleId = typeof article.id === 'string' ? article.id : null;
 
-  if (args.imageFile && articleId) {
-    const imageUrl = await uploadImage(args.imageFile, articleId);
-    if (imageUrl) await adminApi.updateArticle(articleId, { imageUrl });
-  }
+  if (args.imageFile && articleId) await uploadImage(args.imageFile, articleId);
 }
 
 export async function updateArticle(args: {
@@ -113,18 +128,16 @@ export async function updateArticle(args: {
 }): Promise<void> {
   if (!currentUserCan('articles:write')) throw new Error('Unauthorized access');
 
-  const patch: Json = {
+  // A replaced image overwrites its Azure blob in place (stable name, fresh
+  // `?v=` stamp) and the confirm writes `imageUrl` itself, so the patch below
+  // never carries the image.
+  if (args.newImageFile) await uploadImage(args.newImageFile, args.articleId);
+
+  await adminApi.updateArticle(args.articleId, {
     title: args.title,
     content: args.content,
     category: args.category,
-  };
-
-  if (args.newImageFile) {
-    const newImageUrl = await uploadImage(args.newImageFile, args.articleId);
-    if (newImageUrl) patch.imageUrl = newImageUrl;
-  }
-
-  await adminApi.updateArticle(args.articleId, patch);
+  });
 }
 
 /// Deletes the article document. The Storage image is deliberately left in
