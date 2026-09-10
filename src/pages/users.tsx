@@ -28,10 +28,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-import { Timestamp } from 'firebase/firestore';
 import {
-  useDeletionStream,
-  useUsersStream,
+  useDeletionRecords,
+  useRefreshUsers,
+  useUsers,
 } from '@/hooks/use-admin-users';
 import {
   deleteDeletionRecord,
@@ -77,9 +77,15 @@ import { cn } from '@/lib/utils';
 /// "User Intelligence" — the admin user list, exit feedback, and per-user
 /// subscription management.
 ///
-/// Filters, search and sort stay local component state since they are ephemeral
-/// UI, not shared data; the users and deletions collections are live Firestore
-/// subscriptions and the aggregate stats are a one-shot read.
+/// Filters and sort stay local component state since they are ephemeral UI, not
+/// shared data. Search is the exception: it is a server-side query parameter
+/// (matching username AND email), so it belongs to the fetch.
+///
+/// Both lists — members and exits — are paged fetches, not live subscriptions.
+/// Nothing pushes a grant or a deletion back to the browser, so every mutation
+/// on this screen refetches once its own write has returned. The status counts
+/// and the platform/date filters describe the rows LOADED so far, which is why
+/// the count line names both numbers and "Load more" sits under the list.
 
 import { SHEETS_SCRIPT_URL } from '@/lib/constants';
 
@@ -89,6 +95,21 @@ const SORTS = ['Newest', 'Health', 'Name'] as const;
 function formatDate(value: unknown): string {
   const d = toDate(value);
   return d ? fmtDateShort(d) : '-';
+}
+
+/// Raw member fields, for the intake dialog's field dump.
+///
+/// Admin endpoints emit timestamps as ISO strings rather than Firestore
+/// Timestamps, so the old `instanceof Timestamp` test is gone. Only keys that
+/// NAME a date are formatted — otherwise a numeric field would be read as an
+/// epoch and printed as one.
+function renderRawValue(key: string, value: unknown): string {
+  if (value == null) return '-';
+  if (typeof value === 'string' && /(Date|At)$/.test(key)) {
+    const d = toDate(value);
+    if (d) return fmtDateBulletTime(d);
+  }
+  return String(value);
 }
 
 function statusColor(status: string): string {
@@ -375,7 +396,7 @@ function UserIntakeDialog({
               >
                 <span className="flex-[2] font-bold text-muted-foreground">{key}</span>
                 <span className="flex-[3] break-all font-semibold">
-                  {value instanceof Timestamp ? formatDate(value) : String(value)}
+                  {renderRawValue(key, value)}
                 </span>
               </div>
             ))}
@@ -418,18 +439,23 @@ export function UsersPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
-  const users = useUsersStream({
+  const users = useUsers({
     platformFilter: platform,
+    search,
     ghosts: status === 'Ghosts',
     startDate: range.start,
     endDate: range.end,
   });
-  const deletions = useDeletionStream({ startDate: range.start, endDate: range.end });
+  const deletions = useDeletionRecords({ startDate: range.start, endDate: range.end });
+  const refreshUsers = useRefreshUsers();
 
-  // Derived from the rows already streaming rather than fetched again. The
-  // stream is filtered by platform and date but NOT by status, which is exactly
-  // the population these four counts describe — and it is live, so a grant or a
-  // deletion moves them without anything being invalidated.
+  /// Whichever list is on screen, for the controls that are the same either way.
+  const list = viewMode === 'Exits' ? deletions : users;
+
+  // Derived from the rows already fetched rather than asked for separately.
+  // Those rows are filtered by platform and date but NOT by status, which is
+  // exactly the population these four counts describe — of the pages LOADED,
+  // which is what the count line and "Load more" make explicit.
   const stats = useMemo(() => {
     const counts = { premiumCount: 0, basicCount: 0, trialCount: 0, freeCount: 0 };
     for (const u of users.data) {
@@ -465,8 +491,9 @@ export function UsersPage() {
       rows = rows.filter((u) => !u.email || u.email === 'No email');
     }
 
-    const q = search.toLowerCase();
-    if (q) rows = rows.filter((u) => u.username.toLowerCase().includes(q));
+    // Search is not applied here any more: it is a query parameter on the fetch,
+    // so these rows are already the matches — and the server matches email as
+    // well as username, which the client-side filter never did.
 
     rows.sort((a, b) => {
       let cmp: number;
@@ -477,16 +504,24 @@ export function UsersPage() {
     });
 
     return rows;
-  }, [users.data, status, filterNoEmail, search, sortBy, ascending]);
+  }, [users.data, status, filterNoEmail, sortBy, ascending]);
 
   async function exportCsv() {
     try {
-      const rows = await getUsersCsvData({
+      const { rows, truncated, limit } = await getUsersCsvData({
         platformFilter: platform,
+        search,
         startDate: range.start,
         endDate: range.end,
       });
       downloadCsv(`users_export_${Date.now()}.csv`, rows);
+      // The file downloads either way — but a partial spreadsheet that nobody
+      // was told about is the failure mode this warning exists to prevent.
+      if (truncated) {
+        toast.warning(
+          `Export capped at ${limit} rows — this file is incomplete. Narrow it with the search box.`,
+        );
+      }
     } catch (e) {
       toast.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -501,23 +536,30 @@ export function UsersPage() {
     }
     setSyncing(true);
     try {
-      const ok = await syncToGoogleSheets(SHEETS_SCRIPT_URL, {
+      const { sent, truncated } = await syncToGoogleSheets(SHEETS_SCRIPT_URL, {
         platformFilter: platform,
+        search,
         startDate: range.start,
         endDate: range.end,
       });
-      if (ok) toast.success('Google Sheets Synced!');
-      else toast.error('Sync failed.');
+      if (!sent) toast.error('Sync failed.');
+      else if (truncated) {
+        toast.warning('Google Sheets synced, but the export was capped — the sheet is incomplete.');
+      } else toast.success('Google Sheets Synced!');
     } finally {
       setSyncing(false);
     }
   }
 
+  /// Every branch refetches: the server owns the entitlement now, so the row on
+  /// screen is only right again once it has been read back.
   async function grantAccess(tier: 'Premium' | 'Basic' | 'Trial' | 'None', months?: number) {
     if (!accessUser) return;
     const uid = accessUser.uid;
     try {
       if (tier === 'Trial') {
+        // Kept as a visible action so the gap is reported rather than hidden:
+        // the API grants Basic or Premium only, and the service says so.
         await updateUserSubscription(uid, 'Trial', { days: 7 });
         toast.success('Free Trial granted for 7 days');
       } else if (tier === 'None') {
@@ -527,6 +569,7 @@ export function UsersPage() {
         await updateUserSubscription(uid, tier, { months });
         toast.success(`${tier} updated for ${months} months`);
       }
+      refreshUsers();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -541,13 +584,14 @@ export function UsersPage() {
     try {
       await uploadAndSyncProfilePhoto(uid, file);
       toast.success('Profile photo updated successfully');
+      refreshUsers();
     } catch (e) {
       toast.error(`Failed to update photo: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  const listLoading = viewMode === 'Exits' ? deletions.loading : users.loading;
-  const listError = viewMode === 'Exits' ? deletions.error : users.error;
+  const listLoading = list.loading;
+  const listError = list.error;
 
   return (
     <div className="flex h-full flex-col">
@@ -578,12 +622,19 @@ export function UsersPage() {
           <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
             <h1 className="shrink-0 text-xl font-bold tracking-tight">Users</h1>
 
-            <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+            {/* Three numbers, because with a paged fetch they are three
+                different things: what the filters kept, what has been loaded,
+                and what the server has. Showing only the first two would read as
+                "there are 200 accounts". */}
+            <p
+              className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+              title="Filters and counts apply to the rows loaded so far."
+            >
               {listLoading
                 ? 'Loading…'
                 : viewMode === 'Exits'
-                  ? `${deletions.data.length} deletion records`
-                  : `${filtered.length} of ${users.data.length} accounts`}
+                  ? `${deletions.data.length} shown · ${deletions.loaded} of ${deletions.total} deletion records`
+                  : `${filtered.length} shown · ${users.loaded} of ${users.total} loaded`}
             </p>
 
             <div className="flex shrink-0 gap-1 rounded-lg border border-border bg-card p-1">
@@ -695,6 +746,7 @@ export function UsersPage() {
                     <button
                       key={label}
                       type="button"
+                      title={`${label} accounts among the ${users.loaded} loaded`}
                       onClick={() => setStatus(selected ? 'All' : label)}
                       className={cn(
                         'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
@@ -790,15 +842,20 @@ export function UsersPage() {
                 />
               ) : (
                 deletions.data.map((record) => (
-                  <Card key={`${record.collection}-${record.docId}`} className="mb-2.5 rounded-2xl p-4">
+                  <Card key={record.uid} className="mb-2.5 rounded-2xl p-4">
                     <div className="flex items-center gap-3">
                       <span className="rounded-full bg-red-50 p-2 dark:bg-red-950/40">
                         <UserMinus className="size-4 text-red-500" />
                       </span>
+                      {/* The account is gone, so there is no username to show —
+                          `label` is derived from the email the row kept. The
+                          email itself is shown beside it because it is the only
+                          identifier a support ticket can be matched against. */}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-black">{record.username}</p>
-                        <p className="text-[11px] font-medium text-muted-foreground">
-                          {fmtDateBulletTime(record.date)}
+                        <p className="truncate text-sm font-black">{record.label}</p>
+                        <p className="truncate text-[11px] font-medium text-muted-foreground">
+                          {record.date ? fmtDateBulletTime(record.date) : 'Date unknown'}
+                          {record.email ? ` · ${record.email}` : ''}
                         </p>
                       </div>
                       {canWriteUsers && (
@@ -922,6 +979,23 @@ export function UsersPage() {
                 );
               })
             ))}
+
+          {/* The rest of the table, on request, for whichever list is showing.
+              Deliberately a button and not an automatic loop: fetching every
+              page to render one screen is the whole-collection read this
+              replaced. */}
+          {!listLoading && !listError && list.hasMore && (
+            <div className="mt-3 flex flex-col items-center gap-1.5">
+              <Button variant="outline" size="sm" disabled={list.loadingMore} onClick={list.loadMore}>
+                {list.loadingMore
+                  ? 'Loading…'
+                  : `Load ${Math.min(200, list.total - list.loaded)} more`}
+              </Button>
+              <p className="text-[10px] text-muted-foreground">
+                Filters and counts above describe the {list.loaded} rows loaded so far.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1045,7 +1119,10 @@ export function UsersPage() {
                     const uid = photoUser.uid;
                     setPhotoUser(null);
                     void deleteProfilePhoto(uid).then(
-                      () => toast.success('Photo removed'),
+                      () => {
+                        toast.success('Photo removed');
+                        refreshUsers();
+                      },
                       (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
                     );
                   }}
@@ -1101,7 +1178,10 @@ export function UsersPage() {
                   setUrlUser(null);
                   setPhotoUrl('');
                   void updateProfilePhoto(uid, url).then(
-                    () => toast.success('Profile photo updated'),
+                    () => {
+                      toast.success('Profile photo updated');
+                      refreshUsers();
+                    },
                     (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
                   );
                 }}
@@ -1130,13 +1210,14 @@ export function UsersPage() {
           open
           onOpenChange={(open) => !open && setTerminating(null)}
           title="Terminate User?"
-          description={`Are you sure you want to permanently delete ${terminating.username}? This action cannot be undone.`}
+          description={`Are you sure you want to permanently delete ${terminating.username}? Their sign-in account and every record of their training go with it. This action cannot be undone.`}
           confirmLabel="Terminate"
           destructive
           onConfirm={async () => {
             try {
               await deleteUser(terminating.uid);
-                      toast.success(`${terminating.username} terminated`);
+              toast.success(`${terminating.username} terminated`);
+              refreshUsers();
             } catch (e) {
               toast.error(e instanceof Error ? e.message : String(e));
             }
@@ -1154,8 +1235,11 @@ export function UsersPage() {
           destructive
           onConfirm={async () => {
             try {
-              await deleteDeletionRecord(deletingRecord.collection, deletingRecord.docId);
+              // Keyed by the uid of the account that left — `deletion_reasons`
+              // has uid as its primary key.
+              await deleteDeletionRecord(deletingRecord.uid);
               toast.success('Feedback permanently deleted');
+              deletions.refetch();
             } catch (e) {
               toast.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
             }

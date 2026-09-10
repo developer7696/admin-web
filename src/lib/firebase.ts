@@ -5,7 +5,6 @@ import {
   getAuth,
   initializeAuth,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // Ported verbatim from lib/firebase_options.dart (web target only).
@@ -41,5 +40,15 @@ function authForApp() {
 }
 
 export const auth = authForApp();
-export const db = getFirestore(app);
+
+// `db` used to be exported here, and every service reached Firestore through it.
+// It is gone: the backend serves all data from PostgreSQL via the admin API, so
+// a Firestore read here would show a snapshot frozen at the migration. Removing
+// the export - rather than just leaving it unused - is what makes that
+// unreachable instead of merely discouraged. The Firestore DOCUMENTS are
+// deliberately left in place; nothing here reads or writes them.
+//
+// Firebase's remaining jobs in this panel:
+//   auth     admin sign-in and the ID token every API call carries
+//   storage  profile-photo BYTES, which no admin endpoint accepts yet
 export const storage = getStorage(app);
