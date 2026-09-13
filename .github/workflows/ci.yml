@@ -1,0 +1,45 @@
+# Runs on every pull request, BEFORE merge — same gate as Aarambh-2.0's ci.yml,
+# so a red build is visible on the PR while it is still cheap to fix.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push supersedes an in-flight run for the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      # `ci` not `install`: it installs exactly what the lockfile says and
+      # fails if package.json and package-lock.json disagree, so a dependency
+      # cannot drift in unnoticed.
+      - run: npm ci
+
+      # Each step named, and no `--if-present` anywhere: a script that
+      # disappears should turn the build red, not quietly pass.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # The panel deploys as a static build; a change that typechecks but
+      # breaks the Vite/Rollup build should fail here, not during a deploy.
+      - name: Build
+        run: npm run build
