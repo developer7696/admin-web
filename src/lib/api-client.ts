@@ -212,6 +212,80 @@ async function sendBytes(
 /// URL for the whole panel — the auth header, the 401 retry and the error
 /// unwrapping exist in exactly one place.
 export const adminApi = {
+  // ── Users ─────────────────────────────────────────────────────────────────
+  // The panel used to read the `users` collection straight from the browser: a
+  // whole-collection download to render one screen, no way to page it, and — now
+  // that the backend writes only Postgres — a snapshot frozen at migration time
+  // with no error to say so. These endpoints answer the same questions
+  // server-side, page them, and audit every write.
+
+  /// One page of the user table, newest first (`created_at DESC`, uid breaking
+  /// the tie so a row cannot appear on two pages). `limit` is capped at 200
+  /// server-side. `search` matches username and email; a whole email address is
+  /// resolved as an index seek rather than a scan.
+  ///
+  /// Note it filters on `search` and nothing else — there is no platform or
+  /// joined-date parameter, so those remain the panel's own filters.
+  listUsers: (query: { limit?: number; offset?: number; search?: string | null } = {}) => {
+    const qs = new URLSearchParams({
+      limit: String(query.limit ?? 200),
+      offset: String(query.offset ?? 0),
+    });
+    if (query.search) qs.set('search', query.search);
+    return send('GET', `/api/admin/users?${qs.toString()}`, undefined, 45_000);
+  },
+
+  /// Every matching row, unpaginated, for the CSV the panel assembles itself.
+  /// Same projection and order as the table, so the export and the table cannot
+  /// disagree about what a user row is. Capped server-side: `truncated: true`
+  /// means the download is missing its tail and must not be presented as
+  /// complete.
+  exportUsers: (search?: string | null) => {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return send('GET', `/api/admin/users/export${qs}`, undefined, 60_000);
+  },
+
+  /// Deletes the user's data AND their Auth account. The server refuses to
+  /// delete an admin or the caller themselves, and cancels a live Razorpay
+  /// subscription first so a terminated member is not left paying.
+  deleteUser: (uid: string) => send('DELETE', `/api/admin/users/${uid}`),
+
+  /// One door onto the two subscription writes:
+  /// `{action:'grant', tier:'Basic'|'Premium', days}` — 409 if the user already
+  /// holds an active paid subscription; `{action:'cancel', immediate?}` —
+  /// provider-aware, and 409 for Apple, which only the App Store can cancel.
+  updateUserSubscription: (uid: string, body: Json) =>
+    send('PATCH', `/api/admin/users/${uid}/subscription`, body),
+
+  /// Point a user's avatar at an already-hosted image: an https URL, or a
+  /// `profile_photos/…` blob path, which the read path signs. Those are the only
+  /// two forms the app can render, so anything else is rejected here rather than
+  /// discovered as a broken avatar on someone's phone. Uploading the BYTES is
+  /// not this endpoint's job.
+  setUserProfilePhoto: (uid: string, profilePhoto: string) =>
+    send('PUT', `/api/admin/users/${uid}/profile-photo`, { profilePhoto }),
+
+  /// Clears the FIELD; the blob is deliberately left in place — a field is cheap
+  /// to set again and a deleted image is not.
+  deleteUserProfilePhoto: (uid: string) => send('DELETE', `/api/admin/users/${uid}/profile-photo`),
+
+  /// Accounts that have been deleted, newest first — one row per departed
+  /// account, with the reason they gave. `deletion_reasons.uid` is not a foreign
+  /// key (the user is gone), so this table is the only record they existed.
+  /// `limit` is capped at 200 server-side.
+  listDeletionRecords: (query: { limit?: number; offset?: number } = {}) => {
+    const qs = new URLSearchParams({
+      limit: String(query.limit ?? 200),
+      offset: String(query.offset ?? 0),
+    });
+    return send('GET', `/api/admin/deletion-records?${qs.toString()}`);
+  },
+
+  /// Removes one exit-feedback row, keyed by the uid of the account that left.
+  /// Deletes no user data and cannot: that account is already gone, which is
+  /// what wrote the row.
+  deleteDeletionRecord: (uid: string) => send('DELETE', `/api/admin/deletion-records/${uid}`),
+
   // ── Billing ───────────────────────────────────────────────────────────────
 
   /// Full billing picture for one user: firestore state, webhook events, audit
@@ -276,6 +350,58 @@ export const adminApi = {
       toUid: args.toUid,
       ...(args.reason ? { reason: args.reason } : {}),
     }),
+
+  // ── Workouts ──────────────────────────────────────────────────────────────
+  // The panel used to walk `users/{uid}/programs/{p}/weeks/{w}/days/{d}` from
+  // the browser — over a hundred sequential round trips for one active user,
+  // and no way at all to ask "who trained today" across users. Both questions
+  // are answered server-side now.
+
+  /// Cross-user feed of completed sessions, newest first. Cursor-paged: pass
+  /// the previous response's `nextCursor` back as `cursor`; null means the end.
+  ///
+  /// `from`/`to` go as plain `YYYY-MM-DD` in the admin's own timezone, with the
+  /// offset alongside — an ISO instant would shift the boundary and move an
+  /// evening workout into the neighbouring day.
+  workoutLogs: (query: {
+    limit?: number;
+    cursor?: string | null;
+    from?: Date | null;
+    to?: Date | null;
+    uid?: string | null;
+  }) => {
+    const qs = new URLSearchParams({
+      limit: String(query.limit ?? 50),
+      utcOffsetMinutes: String(-new Date().getTimezoneOffset()),
+    });
+    if (query.cursor) qs.set('cursor', query.cursor);
+    if (query.from) qs.set('from', localDate(query.from));
+    if (query.to) qs.set('to', localDate(query.to));
+    if (query.uid) qs.set('uid', query.uid);
+    return send('GET', `/api/admin/workouts/logs?${qs.toString()}`, undefined, 45_000);
+  },
+
+  /// One user's stats and session history. `full: false` omits the per-exercise
+  /// sets, which is four fewer Firestore reads per session.
+  userWorkouts: (uid: string, query?: { days?: number; full?: boolean }) => {
+    const qs = new URLSearchParams({
+      days: String(query?.days ?? 90),
+      full: String(query?.full ?? true),
+    });
+    return send('GET', `/api/admin/workouts/users/${uid}?${qs.toString()}`, undefined, 45_000);
+  },
+
+  /// One session's exercise detail, for a feed row the admin expanded.
+  workoutSession: (args: {
+    uid: string;
+    programId: string;
+    weekId: string;
+    dayId: string;
+  }) =>
+    send(
+      'GET',
+      `/api/admin/workouts/users/${args.uid}/sessions/${args.programId}/${args.weekId}/${args.dayId}`,
+    ),
 
   // ── Articles ──────────────────────────────────────────────────────────────
 
@@ -399,13 +525,94 @@ export const adminApi = {
   /// this code is unaffected.
   deactivateVoucher: (id: string) => send('DELETE', `/api/admin/vouchers/${id}`),
 
+  // ── Complaints ────────────────────────────────────────────────────────────
+
   /// Status/priority lists for the complaints queue. Same document as the
   /// mobile submit-complaint categories (`GET /api/content/complaint-categories`).
   complaintCategories: () => send('GET', '/api/content/complaint-categories'),
 
+  /// One page of the support queue, newest first. `status`/`priority` take the
+  /// literal `all` as well, which is the tab the panel opens on. Untriaged
+  /// tickets — no stored status or priority — match `pending`/`medium` here,
+  /// which is also how the row and the statistics report them.
+  listComplaints: (
+    args: {
+      status?: string;
+      priority?: string;
+      isRead?: boolean;
+      uid?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams({
+      limit: String(args.limit ?? 200),
+      offset: String(args.offset ?? 0),
+    });
+    if (args.status) qs.set('status', args.status);
+    if (args.priority) qs.set('priority', args.priority);
+    if (args.isRead != null) qs.set('isRead', String(args.isRead));
+    if (args.uid) qs.set('uid', args.uid);
+    return send('GET', `/api/admin/complaints?${qs.toString()}`);
+  },
+
+  /// One SQL aggregate over the whole table, so the tile cannot disagree with
+  /// the tabs beside it.
+  complaintStatistics: () => send('GET', '/api/admin/complaints/statistics'),
+
+  /// Triage: set the status, and record a reply if one is given. An omitted or
+  /// null `adminResponse` leaves the stored reply ALONE — the panel sends the
+  /// response box with every status change, so clearing on empty would erase a
+  /// reply the moment someone closed a ticket without retyping it.
+  setComplaintStatus: (id: string, body: Json) =>
+    send('PATCH', `/api/admin/complaints/${id}/status`, body),
+
+  /// Separate from the status write because the two move independently —
+  /// reprioritising a resolved ticket must not reopen it.
+  setComplaintPriority: (id: string, priority: string) =>
+    send('PATCH', `/api/admin/complaints/${id}/priority`, { priority }),
+
+  /// Read receipt. Idempotent, and `updatedAt` moves only on the transition, so
+  /// "last updated" does not decay into "last looked at".
+  markComplaintRead: (id: string) => send('PATCH', `/api/admin/complaints/${id}/read`, {}),
+
+  /// Unrecoverable — the row is the only copy of the ticket's text.
+  deleteComplaint: (id: string) => send('DELETE', `/api/admin/complaints/${id}`),
+
+  // ── Recipes ───────────────────────────────────────────────────────────────
+
   /// Tag chips and difficulty labels. Same document the app uses
   /// (`GET /api/content/recipe-filters`).
   recipeFilters: () => send('GET', '/api/content/recipe-filters'),
+
+  /// Every recipe newest-first, DRAFTS INCLUDED — this is the authoring view,
+  /// not the app's listing. Ships the aggregate counts and the filter catalogue
+  /// alongside the rows.
+  listRecipes: () => send('GET', '/api/admin/recipes'),
+
+  /// The same counts over the WHOLE library rather than one filtered listing.
+  recipeStats: () => send('GET', '/api/admin/recipes/stats'),
+
+  /// Create. The author is stamped from the verified ID token rather than taken
+  /// from the body, and `isPublished` defaults to false — a new recipe is a
+  /// draft until someone publishes it.
+  createRecipe: (body: Json) => send('POST', '/api/admin/recipes', body),
+
+  /// Partial update, `details` fields included: omit a field to leave it alone,
+  /// send it as `null` to CLEAR it.
+  updateRecipe: (id: string, body: Json) => send('PATCH', `/api/admin/recipes/${id}`, body),
+
+  /// Set the publish flag. Passing `undefined` FLIPS whatever is stored, in the
+  /// same statement that reads it, so two editors cannot both act on a stale
+  /// value.
+  setRecipePublished: (id: string, isPublished?: boolean) =>
+    send(
+      'PATCH',
+      `/api/admin/recipes/${id}/publish`,
+      isPublished === undefined ? {} : { isPublished },
+    ),
+
+  deleteRecipe: (id: string) => send('DELETE', `/api/admin/recipes/${id}`),
 
   /// Recipe image upload: same permit-then-confirm shape as program covers.
   /// The bytes go browser → Azure on the returned SAS URL; confirm is what
@@ -426,6 +633,61 @@ export const adminApi = {
     send('POST', `/api/admin/articles/${id}/image/upload-url`, { extension }),
   articleImageUploadConfirm: (id: string, path: string) =>
     send('POST', `/api/admin/articles/${id}/image/confirm`, { path }),
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  // Push campaigns. Reading needs `notifications:read`; anything that can put a
+  // banner on a phone needs `notifications:write`.
+
+  /// Every campaign newest-first — drafts, scheduled, sent, failed and
+  /// cancelled alike. Each row carries its own delivery counters, so the list
+  /// shows what actually happened without a request per row.
+  listNotifications: (params?: { status?: string; category?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.category) q.set('category', params.category);
+    const qs = q.toString();
+    return send('GET', `/api/admin/notifications${qs ? `?${qs}` : ''}`);
+  },
+
+  getNotification: (id: string) => send('GET', `/api/admin/notifications/${id}`),
+
+  /// How many accounts an audience matches, plus a few by name. Counted in SQL
+  /// over the whole user table — the user list endpoint caps at 200 rows a
+  /// page, so counting from loaded rows would quietly under-report.
+  previewAudience: (audience: Json) =>
+    send('POST', '/api/admin/notifications/audience/preview', { audience }),
+
+  /// NOTHING IS SENT BY THIS CALL. Without `scheduledAt` the campaign is a
+  /// draft; with one it is scheduled and the worker picks it up at that time.
+  createNotification: (body: Json) => send('POST', '/api/admin/notifications', body),
+
+  /// Editable only while draft or scheduled — anything else is a 409.
+  updateNotification: (id: string, body: Json) =>
+    send('PATCH', `/api/admin/notifications/${id}`, body),
+
+  cancelNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/cancel`, {}),
+
+  /// Delivers to the calling admin's own devices only. Writes no inbox rows and
+  /// leaves the campaign's status alone, so a tested draft is still a draft.
+  testNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/test`, {}),
+
+  /// THE IRREVERSIBLE ONE. Goes to everyone the audience resolves to.
+  sendNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/send`, {}),
+
+  /// Image upload: the same permit-then-confirm shape as recipe and article
+  /// images. Confirm is what writes `imageUrl` onto the campaign, server-side,
+  /// and only after Azure says the bytes are really there.
+  notificationImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/notifications/${id}/image/upload-url`, { extension }),
+  notificationImageUploadConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/notifications/${id}/image/confirm`, { path }),
+
+  /// Auto-on-publish templates. Every rule ships disabled — enabling one means
+  /// the next publish of that content type broadcasts without anyone pressing
+  /// send.
+  notificationRules: () => send('GET', '/api/admin/notifications/rules'),
+  updateNotificationRule: (key: string, body: Json) =>
+    send('PUT', `/api/admin/notifications/rules/${key}`, body),
 
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;

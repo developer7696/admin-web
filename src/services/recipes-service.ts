@@ -1,34 +1,46 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  updateDoc,
-  type DocumentData,
-} from 'firebase/firestore';
-import { deleteObject, ref } from 'firebase/storage';
-import { auth, db, storage } from '@/lib/firebase';
+import { adminApi, ApiException, type Json } from '@/lib/api-client';
 // `currentUserCan` rather than the old `isCurrentUserAdmin`: that helper now
 // means "holds ANY permission", so a reader would sail straight past it. These
-// are client-side pre-checks only — see ARCHITECTURE.md "The gap".
+// are client-side pre-checks only — the server enforces the same permissions
+// again; see ARCHITECTURE.md "The gap".
 import { currentUserCan } from '@/auth/admin-auth';
-import { adminApi, ApiException } from '@/lib/api-client';
+import { toDate } from '@/lib/format';
 import { putToAzure } from './exercise-catalog-repository';
 
-/// The `recipes` collection, written directly from the browser (same pattern as
-/// the mobile app). Images live in Azure under `recipe_images/{id}.{ext}` in
-/// the public-read container: the browser asks the API for a one-blob write
-/// SAS, PUTs the bytes straight to Azure, and the confirm endpoint - which
-/// verifies the blob landed - writes `imageUrl` onto the document server-side.
-/// Pre-migration recipes may still point at Firebase Storage; those blobs are
-/// left in place.
+/// Recipes CRUD, through the admin API.
+///
+/// This used to write the `recipes` Firestore collection straight from the
+/// browser. It no longer does: the server validates the payload, stamps the
+/// author from the verified ID token rather than trusting the client, and writes
+/// an audit entry per change. The Firestore rules currently allow any signed-in
+/// user to write any document, so browser-side writes were enforced by nothing —
+/// and since the backend moved to Postgres, that collection is a snapshot frozen
+/// at migration time.
+///
+/// Recipes are the sibling of articles in the backend (one table, discriminated
+/// by `kind`), so this file reads very like `articles-service.ts`.
+///
+/// Images still go browser → Azure: the browser asks the API for a one-blob
+/// write SAS (`recipe_images/{id}.{ext}` in the public-read container), PUTs the
+/// bytes straight to Azure, and the confirm endpoint — which verifies the blob
+/// landed — writes `imageUrl` onto the row server-side. Pre-migration recipes
+/// may still point at Firebase Storage; those blobs are left in place.
 
-export type RecipeRow = DocumentData & { id: string };
+/// One recipe as the authoring view consumes it. `Json &` rather than a full
+/// field list because the page renders whatever the API sends (`nutrition` is
+/// free-form jsonb, and `authorName`/`views`/`imagePath` are read straight off
+/// the row); only the timestamps are normalised, because a `Date` is what the
+/// formatters take.
+export type RecipeRow = Json & {
+  id: string;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+};
 
+/// The fields the authoring form owns. `ingredients`/`instructions`/`nutrition`/
+/// `servings`/`totalTime`/`difficulty` live inside the row's `details` jsonb
+/// server-side, but the API speaks them flat — the mapping is the backend's, not
+/// this file's.
 export type RecipeInput = {
   name: string;
   description: string;
@@ -61,15 +73,97 @@ export async function fetchRecipeFilters(): Promise<RecipeFilterCatalog> {
   return parseRecipeFilters(await adminApi.recipeFilters());
 }
 
-export function subscribeRecipes(
-  onData: (rows: RecipeRow[]) => void,
-  onError?: (e: Error) => void,
-): () => void {
-  return onSnapshot(
-    query(collection(db, 'recipes'), orderBy('createdAt', 'desc')),
-    (snapshot) => onData(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))),
-    (e) => onError?.(e),
-  );
+export type RecipeStats = {
+  total: number;
+  published: number;
+  unpublished: number;
+  totalViews: number;
+};
+
+const EMPTY_STATS: RecipeStats = { total: 0, published: 0, unpublished: 0, totalViews: 0 };
+
+const count = (raw: unknown): number => (typeof raw === 'number' ? Math.trunc(raw) : 0);
+
+/// The API calls the unpublished count `drafts`, which is the authoring view's
+/// name for it; the panel has always called it `unpublished`, and the page's
+/// label is "drafts" either way. The breakdowns the endpoint also returns
+/// (`byDifficulty`, `byTag`) have nowhere to go on this screen yet.
+export function parseRecipeStats(json: unknown): RecipeStats {
+  const rec = json && typeof json === 'object' ? (json as Record<string, unknown>) : {};
+  return {
+    total: count(rec.total),
+    published: count(rec.published),
+    unpublished: count(rec.drafts),
+    totalViews: count(rec.totalViews),
+  };
+}
+
+export type RecipesPayload = {
+  recipes: RecipeRow[];
+  stats: RecipeStats;
+  filters: RecipeFilterCatalog;
+};
+
+/// Every recipe newest-first, drafts included, plus the counts above the list
+/// and the filter catalogue.
+///
+/// A fetch rather than the Firestore stream this replaces — the API cannot push,
+/// so every mutation refetches. The trade is losing edits made by ANOTHER admin
+/// while the page sits open; the reload action picks those up.
+///
+/// `stats` here describes the rows returned; the listing is unfiltered, so it
+/// matches `getRecipeStatistics`. `filters` is the same document
+/// `fetchRecipeFilters` fetches, embedded so the authoring form costs one
+/// request rather than two.
+export async function listRecipes(): Promise<RecipesPayload> {
+  const json = await adminApi.listRecipes();
+
+  const recipes = ((json.recipes as Json[]) ?? []).map((raw) => ({
+    ...raw,
+    id: String(raw.id ?? ''),
+    createdAt: toDate(raw.createdAt),
+    updatedAt: toDate(raw.updatedAt),
+  })) as RecipeRow[];
+
+  return {
+    recipes,
+    stats: parseRecipeStats(json.stats),
+    filters: parseRecipeFilters(json.filters),
+  };
+}
+
+/// Whole-library counts, for callers with no list beside them.
+///
+/// A failed count returns zeros rather than throwing: the counts sit in the page
+/// header, and losing them must not take the list down with it.
+export async function getRecipeStatistics(): Promise<RecipeStats> {
+  if (!currentUserCan('recipes:read')) return EMPTY_STATS;
+  try {
+    const json = await adminApi.recipeStats();
+    return parseRecipeStats(json.stats);
+  } catch {
+    return EMPTY_STATS;
+  }
+}
+
+/// The form's fields as the API takes them.
+///
+/// Blank optional values go as explicit `null` rather than `''`: the server
+/// rejects an empty `difficulty` (it is free text with a minimum length, not an
+/// enum) and treats null as "clear it", which is what an unselected dropdown
+/// means. Firestore accepted the empty string, so this mapping is new.
+export function toRecipePayload(input: RecipeInput): Json {
+  return {
+    name: input.name,
+    description: input.description,
+    ingredients: input.ingredients,
+    instructions: input.instructions,
+    nutrition: input.nutrition,
+    servings: input.servings,
+    totalTime: input.totalTime,
+    difficulty: input.difficulty.trim() === '' ? null : input.difficulty,
+    tags: input.tags,
+  };
 }
 
 const EXT_BY_TYPE: Record<string, string> = {
@@ -79,8 +173,8 @@ const EXT_BY_TYPE: Record<string, string> = {
 };
 
 /// Permit → PUT → confirm. The confirm writes `imageUrl` server-side, so this
-/// deliberately does not touch the document; failures throw so the dialog can
-/// say why, instead of silently saving the recipe with no image.
+/// deliberately does not patch the row; failures throw so the dialog can say
+/// why, instead of silently saving the recipe with no image.
 async function uploadImage(file: Blob, recipeId: string): Promise<void> {
   const extension = EXT_BY_TYPE[file.type];
   if (!extension) {
@@ -98,41 +192,28 @@ async function uploadImage(file: Blob, recipeId: string): Promise<void> {
   await adminApi.recipeImageUploadConfirm(recipeId, path);
 }
 
-/// Best-effort: an orphaned blob is cheaper than a failed recipe write.
-/// `ref(storage, url)` accepts a full gs:// or https download URL, which is
-/// what a pre-migration `imageUrl` is. An Azure URL makes it throw, which the
-/// catch turns into the intended no-op — Azure blobs are never deleted from
-/// the browser.
-async function deleteImage(imageUrl: string): Promise<void> {
-  try {
-    await deleteObject(ref(storage, imageUrl));
-  } catch {
-    // ignored
-  }
-}
-
+/// Creates a DRAFT: the server defaults `isPublished` to false and the list's
+/// publish toggle pushes it live. The browser-written version published
+/// immediately, which meant a half-finished recipe reached every app user.
+///
+/// The author is no longer sent — `authorId`/`authorEmail`/`authorName` come
+/// from the verified token, so a recipe cannot claim an author it does not have.
 export async function createRecipe(input: RecipeInput, imageFile?: Blob | null): Promise<void> {
   if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
-  const user = auth.currentUser;
-  if (!user) throw new Error('Please login to create a recipe');
 
   // Created first so the image has an id to live under; the confirm endpoint
-  // then writes `imageUrl` onto the document server-side.
-  const recipeRef = await addDoc(collection(db, 'recipes'), {
-    ...input,
-    authorId: user.uid,
-    authorEmail: user.email,
-    authorName: user.displayName ?? 'Admin',
-    imageUrl: null,
-    isPublished: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    views: 0,
-  });
+  // then writes `imageUrl` onto the row server-side.
+  const created = await adminApi.createRecipe(toRecipePayload(input));
+  const recipe = (created.recipe ?? {}) as Json;
+  const recipeId = typeof recipe.id === 'string' ? recipe.id : null;
 
-  if (imageFile) await uploadImage(imageFile, recipeRef.id);
+  if (imageFile && recipeId) await uploadImage(imageFile, recipeId);
 }
 
+/// Saves the whole form. The endpoint is a partial update, so the fields the
+/// form does not own — `isPublished`, `category`, `imageUrl` — are omitted and
+/// left exactly as they are; the publish toggle is the only thing that moves the
+/// publish flag.
 export async function updateRecipe(
   recipeId: string,
   input: RecipeInput,
@@ -141,51 +222,27 @@ export async function updateRecipe(
   if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
 
   // A replaced image overwrites its Azure blob in place (stable name, fresh
-  // `?v=` stamp), and a legacy Firebase blob is simply left behind — so there
-  // is nothing to delete here.
+  // `?v=` stamp) and the confirm writes `imageUrl` itself, so the patch below
+  // never carries the image.
   if (opts.newImageFile) await uploadImage(opts.newImageFile, recipeId);
 
-  await updateDoc(doc(db, 'recipes', recipeId), { ...input, updatedAt: new Date() });
+  await adminApi.updateRecipe(recipeId, toRecipePayload(input));
 }
 
-export async function deleteRecipe(recipeId: string, imageUrl?: string | null): Promise<void> {
+/// Deletes the recipe row. The image is deliberately left in place — a row is
+/// cheap to recreate, an unrecoverable image is not. That was already true of
+/// Azure blobs, which the browser never had permission to delete; the
+/// best-effort Firebase Storage delete this used to attempt is gone with the
+/// rest of the Firestore path.
+export async function deleteRecipe(recipeId: string): Promise<void> {
   if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
-  if (imageUrl) await deleteImage(imageUrl);
-  await deleteDoc(doc(db, 'recipes', recipeId));
+  await adminApi.deleteRecipe(recipeId);
 }
 
+/// Sends the state the caller intends rather than asking the server to flip,
+/// because the toast says which way it went. The flip form exists for a toggle
+/// that does not know the current value.
 export async function togglePublishStatus(recipeId: string, currentStatus: boolean): Promise<void> {
   if (!currentUserCan('recipes:write')) throw new Error('Unauthorized access');
-  await updateDoc(doc(db, 'recipes', recipeId), {
-    isPublished: !currentStatus,
-    updatedAt: new Date(),
-  });
-}
-
-export type RecipeStats = {
-  total: number;
-  published: number;
-  unpublished: number;
-  totalViews: number;
-};
-
-export async function getRecipeStatistics(): Promise<RecipeStats> {
-  const empty: RecipeStats = { total: 0, published: 0, unpublished: 0, totalViews: 0 };
-  if (!currentUserCan('recipes:read')) return empty;
-
-  try {
-    const snapshot = await getDocs(collection(db, 'recipes'));
-    const stats = { ...empty, total: snapshot.docs.length };
-
-    for (const d of snapshot.docs) {
-      const data = d.data();
-      if (data.isPublished === true) stats.published++;
-      else stats.unpublished++;
-      stats.totalViews += typeof data.views === 'number' ? data.views : 0;
-    }
-
-    return stats;
-  } catch {
-    return empty;
-  }
+  await adminApi.setRecipePublished(recipeId, !currentStatus);
 }

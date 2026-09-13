@@ -38,6 +38,9 @@ const ComplaintsPage = lazy(() =>
   import('@/pages/complaints').then((m) => ({ default: m.ComplaintsPage })),
 );
 const RecipesPage = lazy(() => import('@/pages/recipes').then((m) => ({ default: m.RecipesPage })));
+const NotificationsPage = lazy(() =>
+  import('@/pages/notifications').then((m) => ({ default: m.NotificationsPage })),
+);
 const ProgramsPage = lazy(() =>
   import('@/pages/programs').then((m) => ({ default: m.ProgramsPage })),
 );
@@ -52,6 +55,9 @@ const UserBillingPage = lazy(() =>
 );
 const UserWorkoutTrackerPage = lazy(() =>
   import('@/pages/user-workout-tracker').then((m) => ({ default: m.UserWorkoutTrackerPage })),
+);
+const WorkoutLogsPage = lazy(() =>
+  import('@/pages/workout-logs').then((m) => ({ default: m.WorkoutLogsPage })),
 );
 const IamPage = lazy(() => import('@/pages/iam').then((m) => ({ default: m.IamPage })));
 
@@ -138,10 +144,17 @@ export function App() {
             path="/users/:uid/workouts"
             element={guarded('users:read', <UserWorkoutTrackerPage />)}
           />
+          {/* The cross-user feed. Same users:read as the per-user history it
+              links into — it is the same data, listed the other way round. */}
+          <Route path="/workout-logs" element={guarded('users:read', <WorkoutLogsPage />)} />
           <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
           <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
           <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />
           <Route path="/recipes" element={guarded('recipes:read', <RecipesPage />)} />
+          <Route
+            path="/notifications"
+            element={guarded('notifications:read', <NotificationsPage />)}
+          />
           <Route path="/programs" element={guarded('programs:read', <ProgramsPage />)} />
           <Route path="/programs/:id" element={guarded('programs:read', <ProgramsPage />)} />
           <Route path="/exercises" element={guarded('exercises:read', <ExerciseCataloguePage />)} />

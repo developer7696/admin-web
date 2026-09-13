@@ -493,12 +493,18 @@ export function DashboardHome() {
   async function exportCsv() {
     try {
       toast('Preparing export…');
-      const rows = await getUsersCsvData({
+      const { rows, truncated, limit } = await getUsersCsvData({
         platformFilter: csvPlatform(platform),
         startDate: range.from,
         endDate: range.to,
       });
       downloadCsv(`users_export_${Date.now()}.csv`, rows);
+      // The export endpoint caps its row count. The file still downloads, but a
+      // spreadsheet that is quietly missing its tail must not pass for the
+      // whole table.
+      if (truncated) {
+        toast.warning(`Export capped at ${limit} rows — this file is incomplete.`);
+      }
     } catch (e) {
       toast.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -514,13 +520,15 @@ export function DashboardHome() {
     setSyncing(true);
     toast('Syncing to Google Sheets…');
     try {
-      const ok = await syncToGoogleSheets(SHEETS_SCRIPT_URL, {
+      const { sent, truncated } = await syncToGoogleSheets(SHEETS_SCRIPT_URL, {
         platformFilter: csvPlatform(platform),
         startDate: range.from,
         endDate: range.to,
       });
-      if (ok) toast.success('Google Sheets synced.');
-      else toast.error('Sync failed.');
+      if (!sent) toast.error('Sync failed.');
+      else if (truncated) {
+        toast.warning('Google Sheets synced, but the export was capped — the sheet is incomplete.');
+      } else toast.success('Google Sheets synced.');
     } finally {
       setSyncing(false);
     }

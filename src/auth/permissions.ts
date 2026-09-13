@@ -23,6 +23,8 @@ export const PERMISSIONS = [
   'complaints:write',
   'vouchers:read',
   'vouchers:write',
+  'notifications:read',
+  'notifications:write',
   'users:read',
   'users:write',
   'billing:read',
@@ -87,14 +89,18 @@ export const ROLES: readonly RoleDefinition[] = [
   {
     key: 'content_editor',
     label: 'Content Editor',
-    description: 'Create and edit exercises, programs, articles and recipes.',
-    permissions: CONTENT_WRITE,
+    description:
+      'Create and edit exercises, programs, articles and recipes. Can see what has been pushed, but not push.',
+    // `notifications:read` and not `:write`, mirroring the backend. A send
+    // reaches every installed device at once and cannot be recalled, so it is
+    // a per-user grant rather than something a content role carries by default.
+    permissions: [...CONTENT_WRITE, 'notifications:read'],
   },
   {
     key: 'content_reader',
     label: 'Content Reader',
     description: 'View exercises, programs, articles and recipes. No edits.',
-    permissions: CONTENT_READ,
+    permissions: [...CONTENT_READ, 'notifications:read'],
   },
   {
     key: 'support',
@@ -129,6 +135,11 @@ export const PERMISSION_GROUPS: readonly {
   { resource: 'recipes', label: 'Recipes', permissions: ['recipes:read', 'recipes:write'] },
   { resource: 'complaints', label: 'Complaints', permissions: ['complaints:read', 'complaints:write'] },
   { resource: 'vouchers', label: 'Vouchers', permissions: ['vouchers:read', 'vouchers:write'] },
+  {
+    resource: 'notifications',
+    label: 'Notifications',
+    permissions: ['notifications:read', 'notifications:write'],
+  },
   { resource: 'users', label: 'Users', permissions: ['users:read', 'users:write'] },
   { resource: 'billing', label: 'Billing & payments', permissions: ['billing:read', 'billing:write'] },
   { resource: 'analytics', label: 'Dashboard & conversion', permissions: ['analytics:read'] },
