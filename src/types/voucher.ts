@@ -2,15 +2,17 @@ import { toDateOrNow } from '@/lib/format';
 
 /// A voucher as returned by the backend's `voucherToJson`.
 ///
-/// Two types share this shape:
+/// Two types share this shape, plus a third:
 /// - `entitlement` — grants access directly; `grantTier` + `grantDays` are set.
 /// - `discount` — references a discount that already exists at the payment
 ///   provider; `razorpayOfferId` (Android) and/or `appleOfferCodes` (iOS, keyed
 ///   per plan because Apple offer codes are per-product) are set.
+/// - `trial` — new-user-only; `grantDays` free, then auto-charge. Android uses
+///   Razorpay deferred `start_at`; iOS uses App Store offer codes.
 export type VoucherModel = {
   id: string;
   code: string;
-  type: 'entitlement' | 'discount';
+  type: 'entitlement' | 'discount' | 'trial';
   isActive: boolean;
 
   // Entitlement-only.
@@ -64,7 +66,12 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
   return {
     id: json.id == null ? '' : String(json.id),
     code: json.code == null ? '' : String(json.code),
-    type: String(json.type) === 'discount' ? 'discount' : 'entitlement',
+    type:
+      String(json.type) === 'discount'
+        ? 'discount'
+        : String(json.type) === 'trial'
+          ? 'trial'
+          : 'entitlement',
     isActive: json.isActive !== false,
     grantTier: strOrNull(json.grantTier),
     grantDays: intOrNull(json.grantDays),
@@ -88,6 +95,7 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
 
 export const isEntitlement = (v: VoucherModel) => v.type === 'entitlement';
 export const isDiscount = (v: VoucherModel) => v.type === 'discount';
+export const isTrial = (v: VoucherModel) => v.type === 'trial';
 export const isUnlimited = (v: VoucherModel) => v.maxRedemptions === -1;
 export const isExpired = (v: VoucherModel) => Date.now() > v.validUntil.getTime();
 export const isNotYetValid = (v: VoucherModel) => Date.now() < v.validFrom.getTime();
@@ -99,6 +107,12 @@ export const isLimitReached = (v: VoucherModel) =>
 export function discountPlatforms(v: VoucherModel): string[] {
   const out: string[] = [];
   if (v.razorpayOfferId) out.push('Android');
+  if (Object.keys(v.appleOfferCodes).length > 0) out.push('iOS');
+  return out;
+}
+
+export function trialPlatforms(v: VoucherModel): string[] {
+  const out: string[] = ['Android'];
   if (Object.keys(v.appleOfferCodes).length > 0) out.push('iOS');
   return out;
 }
@@ -115,6 +129,9 @@ export function voucherStatus(v: VoucherModel): string {
 
 /// What this voucher gives, in one line, for the list row.
 export function voucherSummary(v: VoucherModel): string {
+  if (isTrial(v)) {
+    return `${v.grantDays ?? 30}-day free trial, then billed · ${trialPlatforms(v).join(' + ')}`;
+  }
   if (isEntitlement(v)) return `${v.grantDays} days of ${v.grantTier ?? 'access'}, free`;
   const platforms = discountPlatforms(v);
   return platforms.length === 0

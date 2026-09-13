@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  Clock,
   CloudOff,
   Gift,
   Layers,
@@ -33,6 +34,7 @@ import {
   discountPlatforms,
   isDiscount,
   isEntitlement,
+  isTrial,
   isUnlimited,
   savedPaise,
   voucherStatus,
@@ -157,7 +159,8 @@ function VoucherCard({
   canWrite: boolean;
 }) {
   const entitlement = isEntitlement(v);
-  const platforms = discountPlatforms(v);
+  const trial = isTrial(v);
+  const platforms = isDiscount(v) ? discountPlatforms(v) : [];
 
   return (
     <Card className="mb-3 p-[18px]">
@@ -167,10 +170,12 @@ function VoucherCard({
             'rounded-[10px] p-2.5 [&_svg]:size-5',
             entitlement
               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-              : 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+              : trial
+                ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                : 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
           )}
         >
-          {entitlement ? <Gift /> : <Percent />}
+          {entitlement ? <Gift /> : trial ? <Clock /> : <Percent />}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -354,10 +359,11 @@ export function VouchersPage() {
   return (
     <div className="flex h-full flex-col">
       {stats && (
-        <div className="grid gap-2.5 px-4 pb-2.5 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-2.5 px-4 pb-2.5 sm:grid-cols-2 xl:grid-cols-6">
           <StatTile label="Total" value={n('totalVouchers')} icon={<Ticket />} tint="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
           <StatTile label="Active now" value={n('activeVouchers')} icon={<CheckCircle2 />} tint="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
           <StatTile label="Entitlement" value={n('entitlementVouchers')} icon={<Gift />} tint="bg-purple-500/10 text-purple-600 dark:text-purple-400" />
+          <StatTile label="Trial" value={n('trialVouchers')} icon={<Clock />} tint="bg-sky-500/10 text-sky-600 dark:text-sky-400" />
           <StatTile label="Discount" value={n('discountVouchers')} icon={<Percent />} tint="bg-orange-500/10 text-orange-600 dark:text-orange-400" />
           <StatTile label="Redemptions" value={n('totalRedemptions')} icon={<TrendingUp />} tint="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" />
         </div>
@@ -400,6 +406,7 @@ export function VouchersPage() {
       <div className="flex flex-wrap items-center gap-1.5 px-4">
         <FilterChip label="All types" selected={typeFilter == null} onClick={() => setTypeFilter(undefined)} />
         <FilterChip label="Entitlement" selected={typeFilter === 'entitlement'} onClick={() => setTypeFilter('entitlement')} />
+        <FilterChip label="Trial" selected={typeFilter === 'trial'} onClick={() => setTypeFilter('trial')} />
         <FilterChip label="Discount" selected={typeFilter === 'discount'} onClick={() => setTypeFilter('discount')} />
         <div className="mx-1 h-[22px] w-px bg-border" />
         <FilterChip label="Any status" selected={statusFilter == null} onClick={() => setStatusFilter(undefined)} />
@@ -429,7 +436,7 @@ export function VouchersPage() {
             title={all.length === 0 ? 'No vouchers yet' : 'No vouchers match these filters'}
             hint={
               all.length === 0
-                ? 'Create an entitlement voucher to grant free access, or a discount voucher that points at an existing Razorpay Offer / Apple offer code.'
+                ? 'Create an entitlement voucher to grant free access, a 30-day trial coupon that auto-charges on day 31, or a discount voucher that points at an existing Razorpay Offer / Apple offer code.'
                 : 'Try clearing the search or filters.'
             }
             action={

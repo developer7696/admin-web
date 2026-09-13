@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Gift, Loader2, Percent } from 'lucide-react';
+import { AlertCircle, Check, Clock, Gift, Loader2, Percent } from 'lucide-react';
 import { ApiException, type Json } from '@/lib/api-client';
 import { PLAN_KEYS, planKeyLabel } from '@/lib/constants';
 import { toDateInput } from '@/lib/format';
@@ -115,7 +115,10 @@ export function VoucherFormDialog({
       else if (!CODE_RE.test(c)) errs.code = 'Letters, numbers, hyphen or underscore only.';
     }
 
-    if (type === 'entitlement') {
+    if (type === 'trial') {
+      const n = Number.parseInt(grantDays.trim(), 10);
+      if (Number.isNaN(n) || n <= 0 || n > 365) errs.grantDays = 'Enter 1–365.';
+    } else if (type === 'entitlement') {
       const n = Number.parseInt(grantDays.trim(), 10);
       if (Number.isNaN(n) || n <= 0 || n > 3650) errs.grantDays = 'Enter 1–3650.';
     } else if (previewDiscountType) {
@@ -176,7 +179,13 @@ export function VoucherFormDialog({
     const typeFields: Json =
       type === 'entitlement'
         ? { grantTier, grantDays: Number.parseInt(grantDays.trim(), 10) }
-        : {
+        : type === 'trial'
+          ? {
+              grantTier,
+              grantDays: Number.parseInt(grantDays.trim(), 10),
+              ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
+            }
+          : {
             ...(razorpayOfferId.trim() ? { razorpayOfferId: razorpayOfferId.trim() } : {}),
             ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
             // Display-only preview. Sent only when BOTH are present — the server
@@ -240,6 +249,7 @@ export function VoucherFormDialog({
               {(
                 [
                   ['entitlement', 'Entitlement', Gift],
+                  ['trial', '30-day trial', Clock],
                   ['discount', 'Discount', Percent],
                 ] as const
               ).map(([value, label, Icon]) => (
@@ -261,8 +271,10 @@ export function VoucherFormDialog({
           )}
           <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
             {type === 'entitlement'
-              ? 'Grants free access directly. Works on both platforms, no store setup needed.'
-              : 'Applies a discount to a paid purchase. The discount itself must already exist in the Razorpay Dashboard / App Store Connect — it is only referenced here.'}
+              ? 'Grants free access directly. Works on both platforms, no store setup needed. Does not charge after the days expire.'
+              : type === 'trial'
+                ? 'New users only. 30 days free, then the chosen plan is charged automatically on day 31. Android uses a Razorpay mandate (₹5 auth now). iOS needs a 30-day free-trial offer code in App Store Connect.'
+                : 'Applies a discount to a paid purchase. The discount itself must already exist in the Razorpay Dashboard / App Store Connect — it is only referenced here.'}
           </p>
 
           <SectionTitle>Code</SectionTitle>
@@ -282,11 +294,18 @@ export function VoucherFormDialog({
             />
           </Field>
 
-          {type === 'entitlement' ? (
+          {(type === 'entitlement' || type === 'trial') && (
             <>
-              <SectionTitle>What it grants</SectionTitle>
+              <SectionTitle>{type === 'trial' ? 'Trial length' : 'What it grants'}</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Tier">
+                <Field
+                  label="Tier"
+                  helper={
+                    type === 'trial'
+                      ? 'The user still picks a plan at checkout. This is the family the campaign is for.'
+                      : undefined
+                  }
+                >
                   <Select value={grantTier} onValueChange={setGrantTier}>
                     <SelectTrigger>
                       <SelectValue />
@@ -297,7 +316,11 @@ export function VoucherFormDialog({
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Days of access" error={fieldErrors.grantDays}>
+                <Field
+                  label={type === 'trial' ? 'Free days before first charge' : 'Days of access'}
+                  error={fieldErrors.grantDays}
+                  helper={type === 'trial' ? 'Must match the App Store intro length for iOS.' : undefined}
+                >
                   <Input
                     type="number"
                     value={grantDays}
@@ -306,7 +329,9 @@ export function VoucherFormDialog({
                 </Field>
               </div>
             </>
-          ) : (
+          )}
+
+          {type === 'discount' && (
             <>
               <SectionTitle>Android — Razorpay</SectionTitle>
               <Field
@@ -360,12 +385,16 @@ export function VoucherFormDialog({
                   />
                 </Field>
               </div>
+            </>
+          )}
 
+          {(type === 'discount' || type === 'trial') && (
+            <>
               <SectionTitle>iOS — App Store Connect</SectionTitle>
               <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
-                Apple offer codes are per-product, so a campaign covering several plans needs a
-                separate code for each. Generate them in App Store Connect → your subscription →
-                Offer Codes, then paste each one against its plan. Leave blank if Android-only.
+                {type === 'trial'
+                  ? 'Create a custom offer code on each product with a 30-day free trial, then auto-renew at the plan price. Apple offer codes are per-product. Leave blank for an Android-only campaign.'
+                  : 'Apple offer codes are per-product, so a campaign covering several plans needs a separate code for each. Generate them in App Store Connect → your subscription → Offer Codes, then paste each one against its plan. Leave blank if Android-only.'}
               </p>
               <div className="flex flex-col gap-3">
                 {PLAN_KEYS.map((key) => (
