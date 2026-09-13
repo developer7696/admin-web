@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  Bell,
   CalendarDays,
   CreditCard,
   Dumbbell,
@@ -53,6 +54,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Programs', icon: CalendarDays, path: '/programs', permission: 'programs:read' },
       { label: 'Exercise Catalogue', icon: Dumbbell, path: '/exercises', permission: 'exercises:read' },
       { label: 'Articles', icon: FileText, path: '/articles', permission: 'articles:read' },
+      {
+        label: 'Notifications',
+        icon: Bell,
+        path: '/notifications',
+        permission: 'notifications:read',
+      },
     ],
   },
   {

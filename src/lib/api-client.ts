@@ -634,6 +634,61 @@ export const adminApi = {
   articleImageUploadConfirm: (id: string, path: string) =>
     send('POST', `/api/admin/articles/${id}/image/confirm`, { path }),
 
+  // ── Notifications ─────────────────────────────────────────────────────────
+  // Push campaigns. Reading needs `notifications:read`; anything that can put a
+  // banner on a phone needs `notifications:write`.
+
+  /// Every campaign newest-first — drafts, scheduled, sent, failed and
+  /// cancelled alike. Each row carries its own delivery counters, so the list
+  /// shows what actually happened without a request per row.
+  listNotifications: (params?: { status?: string; category?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.category) q.set('category', params.category);
+    const qs = q.toString();
+    return send('GET', `/api/admin/notifications${qs ? `?${qs}` : ''}`);
+  },
+
+  getNotification: (id: string) => send('GET', `/api/admin/notifications/${id}`),
+
+  /// How many accounts an audience matches, plus a few by name. Counted in SQL
+  /// over the whole user table — the user list endpoint caps at 200 rows a
+  /// page, so counting from loaded rows would quietly under-report.
+  previewAudience: (audience: Json) =>
+    send('POST', '/api/admin/notifications/audience/preview', { audience }),
+
+  /// NOTHING IS SENT BY THIS CALL. Without `scheduledAt` the campaign is a
+  /// draft; with one it is scheduled and the worker picks it up at that time.
+  createNotification: (body: Json) => send('POST', '/api/admin/notifications', body),
+
+  /// Editable only while draft or scheduled — anything else is a 409.
+  updateNotification: (id: string, body: Json) =>
+    send('PATCH', `/api/admin/notifications/${id}`, body),
+
+  cancelNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/cancel`, {}),
+
+  /// Delivers to the calling admin's own devices only. Writes no inbox rows and
+  /// leaves the campaign's status alone, so a tested draft is still a draft.
+  testNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/test`, {}),
+
+  /// THE IRREVERSIBLE ONE. Goes to everyone the audience resolves to.
+  sendNotification: (id: string) => send('POST', `/api/admin/notifications/${id}/send`, {}),
+
+  /// Image upload: the same permit-then-confirm shape as recipe and article
+  /// images. Confirm is what writes `imageUrl` onto the campaign, server-side,
+  /// and only after Azure says the bytes are really there.
+  notificationImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/notifications/${id}/image/upload-url`, { extension }),
+  notificationImageUploadConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/notifications/${id}/image/confirm`, { path }),
+
+  /// Auto-on-publish templates. Every rule ships disabled — enabling one means
+  /// the next publish of that content type broadcasts without anyone pressing
+  /// send.
+  notificationRules: () => send('GET', '/api/admin/notifications/rules'),
+  updateNotificationRule: (key: string, body: Json) =>
+    send('PUT', `/api/admin/notifications/rules/${key}`, body),
+
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
   // every write needs `iam:write`, which only Super Admin holds.
