@@ -129,6 +129,7 @@ function statusVariant(status: string) {
     case 'Scheduled':
       return 'default' as const;
     case 'Expired':
+    case 'Dates not set':
       return 'warning' as const;
     case 'Limit reached':
       return 'warning' as const;
@@ -245,7 +246,9 @@ function VoucherCard({
         </Meta>
         <Meta icon={<User />}>{v.perUserLimit} per user</Meta>
         <Meta icon={<Ticket />}>
-          {fmtDayMonth(v.validFrom)} – {fmtDayMonthYear(v.validUntil)}
+          {v.datesSet
+            ? `${fmtDayMonth(v.validFrom)} – ${fmtDayMonthYear(v.validUntil)}`
+            : 'Dates not set - edit to fix'}
         </Meta>
         <Meta icon={<Layers />}>
           {v.validPlans.length === 0 ? 'All plans' : v.validPlans.map(planKeyLabel).join(', ')}

@@ -3,6 +3,11 @@ import { AlertCircle, Check, Gift, Hourglass, Loader2, Percent } from 'lucide-re
 import { ApiException, type Json } from '@/lib/api-client';
 import { PLAN_KEYS, planKeyLabel } from '@/lib/constants';
 import { toDateInput } from '@/lib/format';
+
+/// Date pickers stay near today: a voucher period is chosen weeks or months
+/// out, never decades - so neither end scrolls back to 1970 or years ahead.
+const DATE_MIN = toDateInput(new Date(Date.now() - 365 * 86_400_000));
+const DATE_MAX = toDateInput(new Date(Date.now() + 5 * 365 * 86_400_000));
 import { useCreateVoucher, useUpdateVoucher } from '@/hooks/use-vouchers';
 import type { VoucherModel } from '@/types/voucher';
 import { Button } from '@/components/ui/button';
@@ -116,9 +121,17 @@ export function VoucherFormDialog({
   const [maxRedemptions, setMaxRedemptions] = useState(String(voucher?.maxRedemptions ?? -1));
   const [perUserLimit, setPerUserLimit] = useState(String(voucher?.perUserLimit ?? 1));
   const [validPlans, setValidPlans] = useState<Set<string>>(new Set(voucher?.validPlans ?? []));
-  const [validFrom, setValidFrom] = useState(toDateInput(voucher?.validFrom ?? new Date()));
+  // A voucher whose dates never landed (the server sends 1970 for those) opens
+  // on today / today + 30 like a new one, so the picker starts near now and
+  // saving repairs it - never on a date half a century back.
+  const hasDates = voucher?.datesSet === true;
+  const [validFrom, setValidFrom] = useState(
+    toDateInput(hasDates && voucher ? voucher.validFrom : new Date()),
+  );
   const [validUntil, setValidUntil] = useState(
-    toDateInput(voucher?.validUntil ?? new Date(Date.now() + 30 * 86_400_000)),
+    toDateInput(
+      hasDates && voucher ? voucher.validUntil : new Date(Date.now() + 30 * 86_400_000),
+    ),
   );
   const [notes, setNotes] = useState(voucher?.notes ?? '');
   const [tags, setTags] = useState(voucher?.tags.join(', ') ?? '');
@@ -534,6 +547,8 @@ export function VoucherFormDialog({
             <Field label="Starts">
               <Input
                 type="date"
+                min={DATE_MIN}
+                max={DATE_MAX}
                 value={validFrom}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -547,7 +562,13 @@ export function VoucherFormDialog({
               />
             </Field>
             <Field label="Ends">
-              <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+              <Input
+                type="date"
+                min={validFrom || DATE_MIN}
+                max={DATE_MAX}
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
+              />
             </Field>
           </div>
 

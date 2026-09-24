@@ -46,6 +46,9 @@ export type VoucherModel = {
   validPlans: string[];
   validFrom: Date;
   validUntil: Date;
+  /// False when the server sent no real dates - a missing or unreadable date
+  /// arrives as 1 Jan 1970. The code is unusable until an admin sets them.
+  datesSet: boolean;
   createdAt: Date;
   createdBy: string;
   notes: string | null;
@@ -54,6 +57,11 @@ export type VoucherModel = {
   /// `null` when `maxRedemptions` is unlimited.
   remainingRedemptions: number | null;
 };
+
+/// Anything before 2000 is not a date an admin chose: it is the server's
+/// stand-in (1 Jan 1970) for a missing or unreadable one.
+const EARLIEST_REAL_DATE = Date.UTC(2000, 0, 1);
+const isRealDate = (d: Date) => !Number.isNaN(d.getTime()) && d.getTime() >= EARLIEST_REAL_DATE;
 
 const int = (v: unknown, fallback: number) => (typeof v === 'number' ? Math.trunc(v) : fallback);
 const intOrNull = (v: unknown) => (typeof v === 'number' ? Math.trunc(v) : null);
@@ -90,6 +98,8 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
     validPlans: ((json.validPlans as unknown[]) ?? []).map(String),
     validFrom: toDateOrNow(json.validFrom),
     validUntil: toDateOrNow(json.validUntil),
+    datesSet:
+      isRealDate(toDateOrNow(json.validFrom)) && isRealDate(toDateOrNow(json.validUntil)),
     createdAt: toDateOrNow(json.createdAt),
     createdBy: json.createdBy == null ? '' : String(json.createdBy),
     notes: strOrNull(json.notes),
@@ -129,6 +139,7 @@ export function voucherPlatforms(v: VoucherModel): string[] {
 /// unusable regardless of dates, and an expired one regardless of its cap.
 export function voucherStatus(v: VoucherModel): string {
   if (!v.isActive) return 'Inactive';
+  if (!v.datesSet) return 'Dates not set';
   if (isExpired(v)) return 'Expired';
   if (isNotYetValid(v)) return 'Scheduled';
   if (isLimitReached(v)) return 'Limit reached';
