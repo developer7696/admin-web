@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  CirclePlay,
   CloudOff,
   Gift,
   Hourglass,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   SquarePen,
   Ticket,
+  Trash2,
   TrendingUp,
   User,
   Users,
@@ -24,7 +26,9 @@ import { fmtDayMonth, fmtDayMonthYear, fmtDayMonthYearTime, rupeesFromPaise } fr
 import { ApiException } from '@/lib/api-client';
 import { useCan } from '@/auth/auth-context';
 import {
+  useActivateVoucher,
   useDeactivateVoucher,
+  useDeleteVoucher,
   useVoucherRedemptions,
   useVoucherStats,
   useVouchers,
@@ -147,15 +151,19 @@ function VoucherCard({
   onEdit,
   onRedemptions,
   onDeactivate,
+  onActivate,
+  onDelete,
   canWrite,
 }: {
   voucher: VoucherModel;
   onEdit: () => void;
   onRedemptions: () => void;
   onDeactivate: () => void;
+  onActivate: () => void;
+  onDelete: () => void;
   /// Redemptions stays available to a reader - it is the ledger, and answering
   /// "did this code work for them?" is exactly what `vouchers:read` is for.
-  /// Edit and Deactivate are the ones that need `vouchers:write`.
+  /// Edit, Activate, Deactivate and Delete are the ones that need `vouchers:write`.
   canWrite: boolean;
 }) {
   const entitlement = isEntitlement(v);
@@ -206,6 +214,23 @@ function VoucherCard({
                 <Ban /> Deactivate
               </DropdownMenuItem>
             )}
+            {canWrite && !v.isActive && (
+              <DropdownMenuItem onSelect={onActivate}>
+                <CirclePlay /> Activate
+              </DropdownMenuItem>
+            )}
+            {/* A redeemed code keeps its ledger (it stops a single-use code
+                being used twice), so only an unused one can be deleted. */}
+            {canWrite &&
+              (v.redemptionCount === 0 ? (
+                <DropdownMenuItem destructive onSelect={onDelete}>
+                  <Trash2 /> Delete permanently
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem disabled>
+                  <Trash2 /> Used {v.redemptionCount}× - deactivate instead
+                </DropdownMenuItem>
+              ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -326,11 +351,14 @@ export function VouchersPage() {
   const [editing, setEditing] = useState<VoucherModel | null>(null);
   const [redemptionsFor, setRedemptionsFor] = useState<VoucherModel | null>(null);
   const [deactivating, setDeactivating] = useState<VoucherModel | null>(null);
+  const [deleting, setDeleting] = useState<VoucherModel | null>(null);
 
   const params: VoucherListParams = { type: typeFilter, status: statusFilter };
   const { data: all, isLoading, isError, error, refetch } = useVouchers(params);
   const { data: stats } = useVoucherStats();
   const deactivate = useDeactivateVoucher();
+  const activate = useActivateVoucher();
+  const remove = useDeleteVoucher();
   const canWrite = useCan('vouchers:write');
 
   const filtered = useMemo(() => {
@@ -351,6 +379,24 @@ export function VouchersPage() {
     try {
       await deactivate.mutateAsync(v.id);
       toast.success(`${v.code} deactivated.`);
+    } catch (e) {
+      toast.error(e instanceof ApiException ? e.message : 'Something went wrong. Please try again.');
+    }
+  }
+
+  async function runActivate(v: VoucherModel) {
+    try {
+      await activate.mutateAsync(v.id);
+      toast.success(`${v.code} is active again.`);
+    } catch (e) {
+      toast.error(e instanceof ApiException ? e.message : 'Something went wrong. Please try again.');
+    }
+  }
+
+  async function runDelete(v: VoucherModel) {
+    try {
+      await remove.mutateAsync(v.id);
+      toast.success(`${v.code} deleted.`);
     } catch (e) {
       toast.error(e instanceof ApiException ? e.message : 'Something went wrong. Please try again.');
     }
@@ -464,6 +510,8 @@ export function VouchersPage() {
             }}
             onRedemptions={() => setRedemptionsFor(v)}
             onDeactivate={() => setDeactivating(v)}
+            onActivate={() => void runActivate(v)}
+            onDelete={() => setDeleting(v)}
             canWrite={canWrite}
           />
         ))}
@@ -495,6 +543,18 @@ export function VouchersPage() {
           confirmLabel="Deactivate"
           destructive
           onConfirm={() => runDeactivate(deactivating)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setDeleting(null)}
+          title={`Delete ${deleting.code} permanently?`}
+          description="The code is removed completely and cannot be restored. It has never been redeemed, so no one loses access. To pause a code instead, deactivate it."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={() => runDelete(deleting)}
         />
       )}
     </div>

@@ -398,6 +398,11 @@ export const adminApi = {
   /// Soft delete. Keeps the redemption ledger, and access already granted by
   /// this code is unaffected.
   deactivateVoucher: (id: string) => send('DELETE', `/api/admin/vouchers/${id}`),
+  /// Switch a deactivated code back on.
+  activateVoucher: (id: string) => send('PATCH', `/api/admin/vouchers/${id}`, { isActive: true }),
+  /// Permanent delete. The server refuses (409) a code that has been redeemed -
+  /// its redemption ledger has to be kept, so that one is deactivated instead.
+  deleteVoucher: (id: string) => send('DELETE', `/api/admin/vouchers/${id}/permanent`),
 
   /// Status/priority lists for the complaints queue. Same document as the
   /// mobile submit-complaint categories (`GET /api/content/complaint-categories`).
