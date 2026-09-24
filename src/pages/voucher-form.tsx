@@ -103,7 +103,8 @@ export function VoucherFormDialog({
   const [type, setType] = useState(voucher?.type ?? 'entitlement');
   const [code, setCode] = useState(voucher?.code ?? '');
   const [grantTier, setGrantTier] = useState(voucher?.grantTier ?? 'Premium');
-  const [grantDays, setGrantDays] = useState(String(voucher?.grantDays ?? 30));
+  // Empty for a new voucher: the length is the admin's to set, never a default.
+  const [grantDays, setGrantDays] = useState(voucher?.grantDays != null ? String(voucher.grantDays) : '');
   const [razorpayOfferId, setRazorpayOfferId] = useState(voucher?.razorpayOfferId ?? '');
   const [previewDiscountType, setPreviewDiscountType] = useState(voucher?.previewDiscountType ?? '');
   const [previewDiscountValue, setPreviewDiscountValue] = useState(

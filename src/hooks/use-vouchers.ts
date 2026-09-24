@@ -67,3 +67,9 @@ export const useUpdateVoucher = () =>
 
 export const useDeactivateVoucher = () =>
   useVoucherMutation<string>((id) => adminApi.deactivateVoucher(id));
+
+export const useActivateVoucher = () =>
+  useVoucherMutation<string>((id) => adminApi.activateVoucher(id));
+
+export const useDeleteVoucher = () =>
+  useVoucherMutation<string>((id) => adminApi.deleteVoucher(id));

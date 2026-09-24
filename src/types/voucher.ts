@@ -142,7 +142,8 @@ export function voucherSummary(v: VoucherModel): string {
   // A trial always charges eventually - saying only "30 days free" would read
   // as free access, which is what an entitlement voucher is.
   if (isTrial(v)) {
-    return `${v.grantDays ?? 30}-day free trial, then charged · ${platforms.join(' + ')}`;
+    const length = v.grantDays != null ? `${v.grantDays}-day free trial` : 'Free trial (length not set)';
+    return `${length}, then charged · ${platforms.join(' + ')}`;
   }
   return platforms.length === 0
     ? 'Discount (no offer linked)'
