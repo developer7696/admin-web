@@ -218,6 +218,28 @@ export const adminApi = {
   /// log, and LIVE Razorpay subscription + invoices + payments.
   paymentHistory: (uid: string) => send('GET', `/api/admin/users/${uid}/payment-history`),
 
+  // ── Profile photos ────────────────────────────────────────────────────────
+  // Stored in Azure (`protected-media/profile_photos/{uid}.{ext}`) as a blob
+  // PATH, which a browser cannot load until it is signed.
+
+  /// Upload a member's photo; the server stores it and sets it on the user.
+  uploadUserProfilePhoto: (uid: string, file: Blob) =>
+    sendBytes(
+      `/api/admin/users/${encodeURIComponent(uid)}/profile-photo/upload`,
+      file,
+      file.type,
+    ),
+
+  /// Signed read URLs for stored photo paths, keyed by path (null = unsignable).
+  signProfilePhotos: (paths: string[]) =>
+    send('POST', '/api/admin/profile-photos/sign', { paths }),
+
+  /// The signed-in admin's own profile; its `profilePhoto` is already signed.
+  myProfile: () => send('GET', '/api/profile'),
+
+  /// Upload the signed-in admin's own photo, the same route the app uses.
+  uploadMyProfilePhoto: (file: Blob) => sendBytes('/api/profile/photo', file, file.type),
+
   /// Refund one of the user's subscription payments. Full refund unless
   /// `amountPaise` is given (partial, in paise: 500 = Rs 5).
   refundPayment: (args: { uid: string; paymentId: string; amountPaise?: number; reason?: string }) =>
