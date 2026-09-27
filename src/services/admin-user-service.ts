@@ -9,8 +9,8 @@ import {
   updateDoc,
   type DocumentData,
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { db, storage } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
+import { adminApi } from '@/lib/api-client';
 import { isAdminUserData } from '@/auth/admin-auth';
 import { fmtDateDashed } from '@/lib/format';
 
@@ -356,15 +356,16 @@ export async function updateProfilePhoto(uid: string, photoUrl: string): Promise
   await updateDoc(doc(db, 'users', uid), { profilePhoto: photoUrl });
 }
 
-/// Uploads bytes to `user_profiles/{uid}.jpg` and syncs the download URL onto
-/// the user document.
+/// Uploads a member's photo through the backend, which stores it in Azure
+/// (`protected-media/profile_photos/{uid}.{ext}`) and sets it on the user.
+/// Returns the stored path.
+///
+/// This used to put the bytes in Firebase Storage from the browser, labelled
+/// `image/jpeg` whatever they were - the last image flow outside Azure.
 export async function uploadAndSyncProfilePhoto(uid: string, file: Blob): Promise<string> {
   try {
-    const objectRef = ref(storage, `user_profiles/${uid}.jpg`);
-    const task = await uploadBytes(objectRef, file, { contentType: 'image/jpeg' });
-    const downloadUrl = await getDownloadURL(task.ref);
-    await updateProfilePhoto(uid, downloadUrl);
-    return downloadUrl;
+    const res = await adminApi.uploadUserProfilePhoto(uid, file);
+    return String(res.profilePhoto ?? '');
   } catch (e) {
     throw new Error(`Photo sync failed: ${e instanceof Error ? e.message : String(e)}`);
   }

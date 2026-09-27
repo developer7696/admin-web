@@ -33,6 +33,7 @@ import {
   useDeletionStream,
   useUsersStream,
 } from '@/hooks/use-admin-users';
+import { useProfilePhotoUrl } from '@/hooks/use-profile-photo';
 import {
   deleteDeletionRecord,
   deleteProfilePhoto,
@@ -105,7 +106,8 @@ function statusColor(status: string): string {
 }
 
 function Avatar({ user, size = 64 }: { user: UserRow; size?: number }) {
-  const photo = user.profilePhoto;
+  // A stored photo is a blob path until signed; see useProfilePhotoUrl.
+  const photo = useProfilePhotoUrl(user.profilePhoto);
   return (
     <div
       style={{ width: size, height: size }}
@@ -1116,7 +1118,8 @@ export function UsersPage() {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        // What the server stores; anything else is refused with a 415.
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
