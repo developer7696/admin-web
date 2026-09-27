@@ -1,5 +1,8 @@
+import { useRef } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ChevronDown, LogOut } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Camera, ChevronDown, LogOut } from 'lucide-react';
+import { toast } from 'sonner';
 import { BrandMark } from '@/components/common/brand-mark';
 import { signOut } from '@/auth/admin-auth';
 import { useAuth } from '@/auth/auth-context';
@@ -9,6 +12,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { adminApi } from '@/lib/api-client';
+import { useMyProfilePhoto } from '@/hooks/use-profile-photo';
 import { cn } from '@/lib/utils';
 import { HeaderSlotProvider, HeaderSlotTarget } from './header-slot';
 import { visibleSections } from './nav';
@@ -29,6 +34,24 @@ function ShellChrome() {
   const { user, perms } = useAuth();
   const email = user?.email ?? 'Unknown';
   const initial = email.charAt(0).toUpperCase() || 'A';
+  // What the admin uploaded, else the photo their Google sign-in carries,
+  // else the initial.
+  const myPhoto = useMyProfilePhoto();
+  const photo = myPhoto.data ?? user?.photoURL ?? null;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  // The same route the app uses for a member's own photo, so an admin's lands
+  // in the same place under the same rules.
+  async function uploadMyPhoto(file: File) {
+    try {
+      await adminApi.uploadMyProfilePhoto(file);
+      await queryClient.invalidateQueries({ queryKey: ['my-profile-photo'] });
+      toast.success('Profile photo updated');
+    } catch (e) {
+      toast.error(`Failed to update photo: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   // Only the panes this grant can open. A section whose every entry was
   // filtered out disappears with them - an empty "Growth" heading reads as a
   // bug, not as a permission.
@@ -48,8 +71,12 @@ function ShellChrome() {
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full border border-border bg-background p-1.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <span className="flex size-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-              {initial}
+            <span className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-bold text-primary-foreground">
+              {photo ? (
+                <img src={photo} alt={email} className="size-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                initial
+              )}
             </span>
             <span className="hidden text-[12.5px] font-semibold text-slate-700 dark:text-slate-300 sm:inline">
               {email}
@@ -57,11 +84,25 @@ function ShellChrome() {
             <ChevronDown className="size-4 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
+              <Camera /> Change photo
+            </DropdownMenuItem>
             <DropdownMenuItem destructive onSelect={() => void signOut()}>
               <LogOut /> Logout
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void uploadMyPhoto(file);
+            e.target.value = '';
+          }}
+        />
       </header>
 
       <div className="flex min-h-0 flex-1">
