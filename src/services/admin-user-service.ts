@@ -1,7 +1,5 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { adminApi, ApiException, type Json } from '@/lib/api-client';
 import { currentUserCan, isAdminUserData } from '@/auth/admin-auth';
-import { storage } from '@/lib/firebase';
 import { fmtDateDashed, toDate } from '@/lib/format';
 
 /// User administration, through the admin API.
@@ -16,14 +14,8 @@ import { fmtDateDashed, toDate } from '@/lib/format';
 ///
 /// Every read and write below goes to the server, which re-checks the same
 /// permission, validates the payload, stamps the actor from the verified ID
-/// token and writes an audit entry.
-///
-/// ONE THING THAT DID NOT MOVE, AND WHY
-///
-/// **Profile-photo BYTES** still go to Firebase Storage (see
-/// `uploadAndSyncProfilePhoto`). That is not a Firestore write, and there is no
-/// admin bytes endpoint to move it to. Only the metadata write moved. Nothing in
-/// this file reads or writes Firestore any more.
+/// token and writes an audit entry - profile-photo bytes included, which go to
+/// Azure through the backend. Nothing in this file touches Firebase any more.
 
 /// One row of the admin user table.
 ///
@@ -473,30 +465,21 @@ export async function updateProfilePhoto(uid: string, photoUrl: string): Promise
   await adminApi.setUserProfilePhoto(uid, photoUrl);
 }
 
-/// Uploads photo bytes, then records the resulting URL through the API.
+/// Uploads a member's photo through the backend, which stores it in Azure
+/// (`protected-media/profile_photos/{uid}.{ext}`) and sets it on the user.
+/// Returns the stored path.
 ///
-/// The BYTES still go to Firebase Storage at `user_profiles/{uid}.jpg`. That is
-/// not a Firestore write, and there is nowhere else to send it: the only
-/// bytes-accepting photo endpoint is `POST /api/profile/photo`, which streams to
-/// Azure under the CALLER's own verified uid — the user's own route, unusable by
-/// an admin acting on someone else's account. Only the metadata write moved, and
-/// a Storage download URL is https, which is one of the two forms the API takes.
+/// This used to put the bytes in Firebase Storage from the browser, labelled
+/// `image/jpeg` whatever they were - the last image flow outside Azure.
 export async function uploadAndSyncProfilePhoto(uid: string, file: Blob): Promise<string> {
   if (!currentUserCan('users:write')) throw new Error('Unauthorized access');
 
-  let downloadUrl: string;
   try {
-    const objectRef = ref(storage, `user_profiles/${uid}.jpg`);
-    const task = await uploadBytes(objectRef, file, { contentType: 'image/jpeg' });
-    downloadUrl = await getDownloadURL(task.ref);
+    const res = await adminApi.uploadUserProfilePhoto(uid, file);
+    return String(res.profilePhoto ?? '');
   } catch (e) {
     throw new Error(`Photo upload failed: ${e instanceof Error ? e.message : String(e)}`);
   }
-
-  // Outside the catch on purpose: if the API rejects the URL it says why, and
-  // relabelling that as an upload failure would hide the reason.
-  await updateProfilePhoto(uid, downloadUrl);
-  return downloadUrl;
 }
 
 /// Clears the avatar field. The blob is left in place — a field is cheap to set

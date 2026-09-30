@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Clock, Gift, Loader2, Percent } from 'lucide-react';
+import { AlertCircle, Check, Gift, Hourglass, Loader2, Percent } from 'lucide-react';
 import { ApiException, type Json } from '@/lib/api-client';
 import { PLAN_KEYS, planKeyLabel } from '@/lib/constants';
 import { toDateInput } from '@/lib/format';
+
+/// Date pickers stay near today: a voucher period is chosen weeks or months
+/// out, never decades - so neither end scrolls back to 1970 or years ahead.
+const DATE_MIN = toDateInput(new Date(Date.now() - 365 * 86_400_000));
+const DATE_MAX = toDateInput(new Date(Date.now() + 5 * 365 * 86_400_000));
 import { useCreateVoucher, useUpdateVoucher } from '@/hooks/use-vouchers';
 import type { VoucherModel } from '@/types/voucher';
 import { Button } from '@/components/ui/button';
@@ -55,6 +60,40 @@ function Field({
   );
 }
 
+/// One Apple offer code per plan.
+///
+/// Shared by the discount and trial forms because Apple's constraint is the
+/// same for both: offer codes are per-product and a code name cannot be reused
+/// across products in one app, so covering several plans takes one code each.
+/// Only the guidance differs, which is why [blurb] is a prop.
+function AppleOfferCodesSection({
+  appleCodes,
+  setAppleCodes,
+  blurb,
+}: {
+  appleCodes: Record<string, string>;
+  setAppleCodes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  blurb: React.ReactNode;
+}) {
+  return (
+    <>
+      <SectionTitle>iOS — App Store Connect</SectionTitle>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">{blurb}</p>
+      <div className="flex flex-col gap-3">
+        {PLAN_KEYS.map((key) => (
+          <Field key={key} label={planKeyLabel(key)}>
+            <Input
+              value={appleCodes[key] ?? ''}
+              placeholder="Apple offer code"
+              onChange={(e) => setAppleCodes((prev) => ({ ...prev, [key]: e.target.value }))}
+            />
+          </Field>
+        ))}
+      </div>
+    </>
+  );
+}
+
 const CODE_RE = /^[A-Za-z0-9_-]+$/;
 
 export function VoucherFormDialog({
@@ -69,7 +108,8 @@ export function VoucherFormDialog({
   const [type, setType] = useState(voucher?.type ?? 'entitlement');
   const [code, setCode] = useState(voucher?.code ?? '');
   const [grantTier, setGrantTier] = useState(voucher?.grantTier ?? 'Premium');
-  const [grantDays, setGrantDays] = useState(String(voucher?.grantDays ?? 30));
+  // Empty for a new voucher: the length is the admin's to set, never a default.
+  const [grantDays, setGrantDays] = useState(voucher?.grantDays != null ? String(voucher.grantDays) : '');
   const [razorpayOfferId, setRazorpayOfferId] = useState(voucher?.razorpayOfferId ?? '');
   const [previewDiscountType, setPreviewDiscountType] = useState(voucher?.previewDiscountType ?? '');
   const [previewDiscountValue, setPreviewDiscountValue] = useState(
@@ -81,9 +121,17 @@ export function VoucherFormDialog({
   const [maxRedemptions, setMaxRedemptions] = useState(String(voucher?.maxRedemptions ?? -1));
   const [perUserLimit, setPerUserLimit] = useState(String(voucher?.perUserLimit ?? 1));
   const [validPlans, setValidPlans] = useState<Set<string>>(new Set(voucher?.validPlans ?? []));
-  const [validFrom, setValidFrom] = useState(toDateInput(voucher?.validFrom ?? new Date()));
+  // A voucher whose dates never landed (the server sends 1970 for those) opens
+  // on today / today + 30 like a new one, so the picker starts near now and
+  // saving repairs it - never on a date half a century back.
+  const hasDates = voucher?.datesSet === true;
+  const [validFrom, setValidFrom] = useState(
+    toDateInput(hasDates && voucher ? voucher.validFrom : new Date()),
+  );
   const [validUntil, setValidUntil] = useState(
-    toDateInput(voucher?.validUntil ?? new Date(Date.now() + 30 * 86_400_000)),
+    toDateInput(
+      hasDates && voucher ? voucher.validUntil : new Date(Date.now() + 30 * 86_400_000),
+    ),
   );
   const [notes, setNotes] = useState(voucher?.notes ?? '');
   const [tags, setTags] = useState(voucher?.tags.join(', ') ?? '');
@@ -115,12 +163,14 @@ export function VoucherFormDialog({
       else if (!CODE_RE.test(c)) errs.code = 'Letters, numbers, hyphen or underscore only.';
     }
 
-    if (type === 'trial') {
-      const n = Number.parseInt(grantDays.trim(), 10);
-      if (Number.isNaN(n) || n <= 0 || n > 365) errs.grantDays = 'Enter 1–365.';
-    } else if (type === 'entitlement') {
+    if (type === 'entitlement') {
       const n = Number.parseInt(grantDays.trim(), 10);
       if (Number.isNaN(n) || n <= 0 || n > 3650) errs.grantDays = 'Enter 1–3650.';
+    } else if (type === 'trial') {
+      // Capped at 365 server-side: a trial is a deferred charge, not a grant,
+      // and Razorpay will not hold an authorisation open indefinitely.
+      const n = Number.parseInt(grantDays.trim(), 10);
+      if (Number.isNaN(n) || n <= 0 || n > 365) errs.grantDays = 'Enter 1–365.';
     } else if (previewDiscountType) {
       const text = previewDiscountValue.trim();
       if (!text) errs.previewDiscountValue = 'Required when a preview type is set';
@@ -180,12 +230,16 @@ export function VoucherFormDialog({
       type === 'entitlement'
         ? { grantTier, grantDays: Number.parseInt(grantDays.trim(), 10) }
         : type === 'trial'
-          ? {
-              grantTier,
-              grantDays: Number.parseInt(grantDays.trim(), 10),
-              ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
-            }
-          : {
+        ? {
+            grantTier,
+            grantDays: Number.parseInt(grantDays.trim(), 10),
+            // iOS only. Android needs nothing here - the free days come from
+            // deferring Razorpay's start_at, not from an offer.
+            ...(Object.keys(filledAppleCodes).length > 0
+              ? { appleOfferCodes: filledAppleCodes }
+              : {}),
+          }
+        : {
             ...(razorpayOfferId.trim() ? { razorpayOfferId: razorpayOfferId.trim() } : {}),
             ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
             // Display-only preview. Sent only when BOTH are present — the server
@@ -240,16 +294,16 @@ export function VoucherFormDialog({
           <SectionTitle>Type</SectionTitle>
           {isEdit ? (
             <div className="rounded-[10px] border border-border bg-muted/50 p-3.5 text-[12.5px] leading-relaxed">
-              This voucher is an {voucher.type} voucher. Type and code can&apos;t change after
-              creation — a redeemed code&apos;s meaning must stay the same for the users who already
-              used it.
+              This voucher is {voucher.type === 'entitlement' ? 'an' : 'a'} {voucher.type} voucher.
+              Type and code can&apos;t change after creation — a redeemed code&apos;s meaning must
+              stay the same for the users who already used it.
             </div>
           ) : (
             <div className="inline-flex rounded-lg border border-input p-1">
               {(
                 [
                   ['entitlement', 'Entitlement', Gift],
-                  ['trial', '30-day trial', Clock],
+                  ['trial', 'Trial', Hourglass],
                   ['discount', 'Discount', Percent],
                 ] as const
               ).map(([value, label, Icon]) => (
@@ -271,9 +325,9 @@ export function VoucherFormDialog({
           )}
           <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
             {type === 'entitlement'
-              ? 'Grants free access directly. Works on both platforms, no store setup needed. Does not charge after the days expire.'
+              ? 'Grants free access directly. Works on both platforms, no store setup needed.'
               : type === 'trial'
-                ? 'New users only. 30 days free, then the chosen plan is charged automatically on day 31. Android uses a Razorpay mandate (₹5 auth now). iOS needs a 30-day free-trial offer code in App Store Connect.'
+                ? 'Extends the free trial for a NEW user, then bills them normally. Android works with no store setup — the free days come from deferring the first charge. iOS needs a matching App Store offer code per plan.'
                 : 'Applies a discount to a paid purchase. The discount itself must already exist in the Razorpay Dashboard / App Store Connect — it is only referenced here.'}
           </p>
 
@@ -294,17 +348,53 @@ export function VoucherFormDialog({
             />
           </Field>
 
-          {(type === 'entitlement' || type === 'trial') && (
+          {type === 'entitlement' ? (
             <>
-              <SectionTitle>{type === 'trial' ? 'Trial length' : 'What it grants'}</SectionTitle>
+              <SectionTitle>What it grants</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Tier">
+                  <Select value={grantTier} onValueChange={setGrantTier}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Premium">Premium (Pro)</SelectItem>
+                      <SelectItem value="Basic">Basic</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Days of access" error={fieldErrors.grantDays}>
+                  <Input
+                    type="number"
+                    value={grantDays}
+                    onChange={(e) => setGrantDays(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </>
+          ) : type === 'trial' ? (
+            <>
+              <SectionTitle>How long the trial runs</SectionTitle>
+              <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
+                Replaces the default trial length for anyone who redeems this code. Only a user who
+                has never trialled or subscribed can use it — the server refuses it for everyone
+                else, so it cannot be passed around to extend an existing account.
+              </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
+                  label="Free days before first charge"
+                  error={fieldErrors.grantDays}
+                  helper="1–365. The plan is charged in full when this runs out."
+                >
+                  <Input
+                    type="number"
+                    value={grantDays}
+                    onChange={(e) => setGrantDays(e.target.value)}
+                  />
+                </Field>
+                <Field
                   label="Tier"
-                  helper={
-                    type === 'trial'
-                      ? 'The user still picks a plan at checkout. This is the family the campaign is for.'
-                      : undefined
-                  }
+                  helper="A plan-family hint only — the user still picks their plan at checkout."
                 >
                   <Select value={grantTier} onValueChange={setGrantTier}>
                     <SelectTrigger>
@@ -316,22 +406,30 @@ export function VoucherFormDialog({
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field
-                  label={type === 'trial' ? 'Free days before first charge' : 'Days of access'}
-                  error={fieldErrors.grantDays}
-                  helper={type === 'trial' ? 'Must match the App Store intro length for iOS.' : undefined}
-                >
-                  <Input
-                    type="number"
-                    value={grantDays}
-                    onChange={(e) => setGrantDays(e.target.value)}
-                  />
-                </Field>
               </div>
-            </>
-          )}
 
-          {type === 'discount' && (
+              <SectionTitle>Android — Razorpay</SectionTitle>
+              <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
+                Nothing to set up. The free days come from deferring the first charge, not from an
+                Offer, so this works on Android as soon as the code is active. Razorpay still takes
+                its small refundable authorisation up front to store the payment method.
+              </p>
+
+              <AppleOfferCodesSection
+                appleCodes={appleCodes}
+                setAppleCodes={setAppleCodes}
+                blurb={
+                  <>
+                    Required for iOS — without a code for a plan, this voucher is refused on that
+                    plan and the user is told it is unavailable on their platform. Create each one
+                    in App Store Connect as a free trial of the SAME length entered above; Apple
+                    owns the redemption and a mismatch means the user gets Apple&apos;s length, not
+                    this one. Leave blank if the campaign is Android-only.
+                  </>
+                }
+              />
+            </>
+          ) : (
             <>
               <SectionTitle>Android — Razorpay</SectionTitle>
               <Field
@@ -385,30 +483,12 @@ export function VoucherFormDialog({
                   />
                 </Field>
               </div>
-            </>
-          )}
 
-          {(type === 'discount' || type === 'trial') && (
-            <>
-              <SectionTitle>iOS — App Store Connect</SectionTitle>
-              <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
-                {type === 'trial'
-                  ? 'Create a custom offer code on each product with a 30-day free trial, then auto-renew at the plan price. Apple offer codes are per-product. Leave blank for an Android-only campaign.'
-                  : 'Apple offer codes are per-product, so a campaign covering several plans needs a separate code for each. Generate them in App Store Connect → your subscription → Offer Codes, then paste each one against its plan. Leave blank if Android-only.'}
-              </p>
-              <div className="flex flex-col gap-3">
-                {PLAN_KEYS.map((key) => (
-                  <Field key={key} label={planKeyLabel(key)}>
-                    <Input
-                      value={appleCodes[key] ?? ''}
-                      placeholder="Apple offer code"
-                      onChange={(e) =>
-                        setAppleCodes((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                    />
-                  </Field>
-                ))}
-              </div>
+              <AppleOfferCodesSection
+                appleCodes={appleCodes}
+                setAppleCodes={setAppleCodes}
+                blurb="Apple offer codes are per-product, so a campaign covering several plans needs a separate code for each. Generate them in App Store Connect → your subscription → Offer Codes, then paste each one against its plan. Leave blank if Android-only."
+              />
             </>
           )}
 
@@ -467,6 +547,8 @@ export function VoucherFormDialog({
             <Field label="Starts">
               <Input
                 type="date"
+                min={DATE_MIN}
+                max={DATE_MAX}
                 value={validFrom}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -480,7 +562,13 @@ export function VoucherFormDialog({
               />
             </Field>
             <Field label="Ends">
-              <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+              <Input
+                type="date"
+                min={validFrom || DATE_MIN}
+                max={DATE_MAX}
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
+              />
             </Field>
           </div>
 

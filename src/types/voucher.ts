@@ -2,25 +2,30 @@ import { toDateOrNow } from '@/lib/format';
 
 /// A voucher as returned by the backend's `voucherToJson`.
 ///
-/// Two types share this shape, plus a third:
+/// Three types share this shape:
 /// - `entitlement` — grants access directly; `grantTier` + `grantDays` are set.
+/// - `trial` — enrols a new user on a paid plan with the first charge deferred
+///   by `grantDays`, so they get a longer free run than the default trial.
+///   Android needs no offer at all (Razorpay defers `start_at`); iOS needs an
+///   `appleOfferCodes` entry for each plan it should cover.
 /// - `discount` — references a discount that already exists at the payment
 ///   provider; `razorpayOfferId` (Android) and/or `appleOfferCodes` (iOS, keyed
 ///   per plan because Apple offer codes are per-product) are set.
-/// - `trial` — new-user-only; `grantDays` free, then auto-charge. Android uses
-///   Razorpay deferred `start_at`; iOS uses App Store offer codes.
 export type VoucherModel = {
   id: string;
   code: string;
   type: 'entitlement' | 'discount' | 'trial';
   isActive: boolean;
 
-  // Entitlement-only.
+  // Entitlement: days of access granted. Trial: free days before the first
+  // charge. Tier is a plan-family hint on a trial - the user still picks one.
   grantTier: string | null;
   grantDays: number | null;
 
   // Discount-only.
   razorpayOfferId: string | null;
+
+  // Discount and trial (iOS).
   appleOfferCodes: Record<string, string>;
 
   /// DISPLAY ONLY — what the Android paywall shows before checkout, e.g.
@@ -41,6 +46,9 @@ export type VoucherModel = {
   validPlans: string[];
   validFrom: Date;
   validUntil: Date;
+  /// False when the server sent no real dates - a missing or unreadable date
+  /// arrives as 1 Jan 1970. The code is unusable until an admin sets them.
+  datesSet: boolean;
   createdAt: Date;
   createdBy: string;
   notes: string | null;
@@ -49,6 +57,11 @@ export type VoucherModel = {
   /// `null` when `maxRedemptions` is unlimited.
   remainingRedemptions: number | null;
 };
+
+/// Anything before 2000 is not a date an admin chose: it is the server's
+/// stand-in (1 Jan 1970) for a missing or unreadable one.
+const EARLIEST_REAL_DATE = Date.UTC(2000, 0, 1);
+const isRealDate = (d: Date) => !Number.isNaN(d.getTime()) && d.getTime() >= EARLIEST_REAL_DATE;
 
 const int = (v: unknown, fallback: number) => (typeof v === 'number' ? Math.trunc(v) : fallback);
 const intOrNull = (v: unknown) => (typeof v === 'number' ? Math.trunc(v) : null);
@@ -85,6 +98,8 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
     validPlans: ((json.validPlans as unknown[]) ?? []).map(String),
     validFrom: toDateOrNow(json.validFrom),
     validUntil: toDateOrNow(json.validUntil),
+    datesSet:
+      isRealDate(toDateOrNow(json.validFrom)) && isRealDate(toDateOrNow(json.validUntil)),
     createdAt: toDateOrNow(json.createdAt),
     createdBy: json.createdBy == null ? '' : String(json.createdBy),
     notes: strOrNull(json.notes),
@@ -102,18 +117,21 @@ export const isNotYetValid = (v: VoucherModel) => Date.now() < v.validFrom.getTi
 export const isLimitReached = (v: VoucherModel) =>
   !isUnlimited(v) && v.redemptionCount >= v.maxRedemptions;
 
-/// Which platforms a discount voucher can actually be used on. Empty for an
-/// entitlement voucher, which works everywhere.
-export function discountPlatforms(v: VoucherModel): string[] {
+/// Which platforms this voucher can actually be used on. Empty for an
+/// entitlement voucher, which works everywhere and needs no store setup.
+///
+/// The two paid types do NOT have the same requirements, and treating them
+/// alike would mislabel every trial voucher as iOS-only:
+/// - discount — needs a Razorpay Offer for Android, Apple offer codes for iOS.
+/// - trial — Android is always available, because the free days come from
+///   deferring Razorpay's `start_at` rather than from any offer. Only iOS
+///   needs codes.
+export function voucherPlatforms(v: VoucherModel): string[] {
+  const hasApple = Object.keys(v.appleOfferCodes).length > 0;
+  if (isTrial(v)) return hasApple ? ['Android', 'iOS'] : ['Android'];
   const out: string[] = [];
   if (v.razorpayOfferId) out.push('Android');
-  if (Object.keys(v.appleOfferCodes).length > 0) out.push('iOS');
-  return out;
-}
-
-export function trialPlatforms(v: VoucherModel): string[] {
-  const out: string[] = ['Android'];
-  if (Object.keys(v.appleOfferCodes).length > 0) out.push('iOS');
+  if (hasApple) out.push('iOS');
   return out;
 }
 
@@ -121,6 +139,7 @@ export function trialPlatforms(v: VoucherModel): string[] {
 /// unusable regardless of dates, and an expired one regardless of its cap.
 export function voucherStatus(v: VoucherModel): string {
   if (!v.isActive) return 'Inactive';
+  if (!v.datesSet) return 'Dates not set';
   if (isExpired(v)) return 'Expired';
   if (isNotYetValid(v)) return 'Scheduled';
   if (isLimitReached(v)) return 'Limit reached';
@@ -129,11 +148,14 @@ export function voucherStatus(v: VoucherModel): string {
 
 /// What this voucher gives, in one line, for the list row.
 export function voucherSummary(v: VoucherModel): string {
-  if (isTrial(v)) {
-    return `${v.grantDays ?? 30}-day free trial, then billed · ${trialPlatforms(v).join(' + ')}`;
-  }
   if (isEntitlement(v)) return `${v.grantDays} days of ${v.grantTier ?? 'access'}, free`;
-  const platforms = discountPlatforms(v);
+  const platforms = voucherPlatforms(v);
+  // A trial always charges eventually - saying only "30 days free" would read
+  // as free access, which is what an entitlement voucher is.
+  if (isTrial(v)) {
+    const length = v.grantDays != null ? `${v.grantDays}-day free trial` : 'Free trial (length not set)';
+    return `${length}, then charged · ${platforms.join(' + ')}`;
+  }
   return platforms.length === 0
     ? 'Discount (no offer linked)'
     : `Discount via ${platforms.join(' + ')}`;

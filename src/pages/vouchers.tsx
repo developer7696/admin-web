@@ -3,9 +3,10 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
-  Clock,
+  CirclePlay,
   CloudOff,
   Gift,
+  Hourglass,
   Layers,
   MoreHorizontal,
   Percent,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   SquarePen,
   Ticket,
+  Trash2,
   TrendingUp,
   User,
   Users,
@@ -24,18 +26,20 @@ import { fmtDayMonth, fmtDayMonthYear, fmtDayMonthYearTime, rupeesFromPaise } fr
 import { ApiException } from '@/lib/api-client';
 import { useCan } from '@/auth/auth-context';
 import {
+  useActivateVoucher,
   useDeactivateVoucher,
+  useDeleteVoucher,
   useVoucherRedemptions,
   useVoucherStats,
   useVouchers,
   type VoucherListParams,
 } from '@/hooks/use-vouchers';
 import {
-  discountPlatforms,
   isDiscount,
   isEntitlement,
   isTrial,
   isUnlimited,
+  voucherPlatforms,
   savedPaise,
   voucherStatus,
   voucherSummary,
@@ -125,6 +129,7 @@ function statusVariant(status: string) {
     case 'Scheduled':
       return 'default' as const;
     case 'Expired':
+    case 'Dates not set':
       return 'warning' as const;
     case 'Limit reached':
       return 'warning' as const;
@@ -147,20 +152,24 @@ function VoucherCard({
   onEdit,
   onRedemptions,
   onDeactivate,
+  onActivate,
+  onDelete,
   canWrite,
 }: {
   voucher: VoucherModel;
   onEdit: () => void;
   onRedemptions: () => void;
   onDeactivate: () => void;
+  onActivate: () => void;
+  onDelete: () => void;
   /// Redemptions stays available to a reader - it is the ledger, and answering
   /// "did this code work for them?" is exactly what `vouchers:read` is for.
-  /// Edit and Deactivate are the ones that need `vouchers:write`.
+  /// Edit, Activate, Deactivate and Delete are the ones that need `vouchers:write`.
   canWrite: boolean;
 }) {
   const entitlement = isEntitlement(v);
   const trial = isTrial(v);
-  const platforms = isDiscount(v) ? discountPlatforms(v) : [];
+  const platforms = voucherPlatforms(v);
 
   return (
     <Card className="mb-3 p-[18px]">
@@ -175,7 +184,7 @@ function VoucherCard({
                 : 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
           )}
         >
-          {entitlement ? <Gift /> : trial ? <Clock /> : <Percent />}
+          {entitlement ? <Gift /> : trial ? <Hourglass /> : <Percent />}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -206,6 +215,23 @@ function VoucherCard({
                 <Ban /> Deactivate
               </DropdownMenuItem>
             )}
+            {canWrite && !v.isActive && (
+              <DropdownMenuItem onSelect={onActivate}>
+                <CirclePlay /> Activate
+              </DropdownMenuItem>
+            )}
+            {/* A redeemed code keeps its ledger (it stops a single-use code
+                being used twice), so only an unused one can be deleted. */}
+            {canWrite &&
+              (v.redemptionCount === 0 ? (
+                <DropdownMenuItem destructive onSelect={onDelete}>
+                  <Trash2 /> Delete permanently
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem disabled>
+                  <Trash2 /> Used {v.redemptionCount}× - deactivate instead
+                </DropdownMenuItem>
+              ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -220,7 +246,9 @@ function VoucherCard({
         </Meta>
         <Meta icon={<User />}>{v.perUserLimit} per user</Meta>
         <Meta icon={<Ticket />}>
-          {fmtDayMonth(v.validFrom)} – {fmtDayMonthYear(v.validUntil)}
+          {v.datesSet
+            ? `${fmtDayMonth(v.validFrom)} – ${fmtDayMonthYear(v.validUntil)}`
+            : 'Dates not set - edit to fix'}
         </Meta>
         <Meta icon={<Layers />}>
           {v.validPlans.length === 0 ? 'All plans' : v.validPlans.map(planKeyLabel).join(', ')}
@@ -326,11 +354,14 @@ export function VouchersPage() {
   const [editing, setEditing] = useState<VoucherModel | null>(null);
   const [redemptionsFor, setRedemptionsFor] = useState<VoucherModel | null>(null);
   const [deactivating, setDeactivating] = useState<VoucherModel | null>(null);
+  const [deleting, setDeleting] = useState<VoucherModel | null>(null);
 
   const params: VoucherListParams = { type: typeFilter, status: statusFilter };
   const { data: all, isLoading, isError, error, refetch } = useVouchers(params);
   const { data: stats } = useVoucherStats();
   const deactivate = useDeactivateVoucher();
+  const activate = useActivateVoucher();
+  const remove = useDeleteVoucher();
   const canWrite = useCan('vouchers:write');
 
   const filtered = useMemo(() => {
@@ -356,6 +387,24 @@ export function VouchersPage() {
     }
   }
 
+  async function runActivate(v: VoucherModel) {
+    try {
+      await activate.mutateAsync(v.id);
+      toast.success(`${v.code} is active again.`);
+    } catch (e) {
+      toast.error(e instanceof ApiException ? e.message : 'Something went wrong. Please try again.');
+    }
+  }
+
+  async function runDelete(v: VoucherModel) {
+    try {
+      await remove.mutateAsync(v.id);
+      toast.success(`${v.code} deleted.`);
+    } catch (e) {
+      toast.error(e instanceof ApiException ? e.message : 'Something went wrong. Please try again.');
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       {stats && (
@@ -363,7 +412,7 @@ export function VouchersPage() {
           <StatTile label="Total" value={n('totalVouchers')} icon={<Ticket />} tint="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
           <StatTile label="Active now" value={n('activeVouchers')} icon={<CheckCircle2 />} tint="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
           <StatTile label="Entitlement" value={n('entitlementVouchers')} icon={<Gift />} tint="bg-purple-500/10 text-purple-600 dark:text-purple-400" />
-          <StatTile label="Trial" value={n('trialVouchers')} icon={<Clock />} tint="bg-sky-500/10 text-sky-600 dark:text-sky-400" />
+          <StatTile label="Trial" value={n('trialVouchers')} icon={<Hourglass />} tint="bg-sky-500/10 text-sky-600 dark:text-sky-400" />
           <StatTile label="Discount" value={n('discountVouchers')} icon={<Percent />} tint="bg-orange-500/10 text-orange-600 dark:text-orange-400" />
           <StatTile label="Redemptions" value={n('totalRedemptions')} icon={<TrendingUp />} tint="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" />
         </div>
@@ -436,7 +485,7 @@ export function VouchersPage() {
             title={all.length === 0 ? 'No vouchers yet' : 'No vouchers match these filters'}
             hint={
               all.length === 0
-                ? 'Create an entitlement voucher to grant free access, a 30-day trial coupon that auto-charges on day 31, or a discount voucher that points at an existing Razorpay Offer / Apple offer code.'
+                ? 'Create an entitlement voucher to grant free access, a trial voucher to give new users a longer free run before their first charge, or a discount voucher that points at an existing Razorpay Offer / Apple offer code.'
                 : 'Try clearing the search or filters.'
             }
             action={
@@ -464,6 +513,8 @@ export function VouchersPage() {
             }}
             onRedemptions={() => setRedemptionsFor(v)}
             onDeactivate={() => setDeactivating(v)}
+            onActivate={() => void runActivate(v)}
+            onDelete={() => setDeleting(v)}
             canWrite={canWrite}
           />
         ))}
@@ -495,6 +546,18 @@ export function VouchersPage() {
           confirmLabel="Deactivate"
           destructive
           onConfirm={() => runDeactivate(deactivating)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && setDeleting(null)}
+          title={`Delete ${deleting.code} permanently?`}
+          description="The code is removed completely and cannot be restored. It has never been redeemed, so no one loses access. To pause a code instead, deactivate it."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={() => runDelete(deleting)}
         />
       )}
     </div>
