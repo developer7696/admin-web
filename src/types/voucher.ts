@@ -27,6 +27,10 @@ export type VoucherModel = {
 
   // Discount and trial (iOS).
   appleOfferCodes: Record<string, string>;
+  /// Each plan's offer REFERENCE NAME in App Store Connect - what Apple reports
+  /// on the purchase, so the server can check the offer redeemed is this
+  /// voucher's. Without it an iOS redemption is accepted unverified.
+  appleOfferRefNames: Record<string, string>;
 
   /// DISPLAY ONLY — what the Android paywall shows before checkout, e.g.
   /// "₹999 → ₹799". Razorpay's SDK exposes no Offers API, so this is re-entered
@@ -67,14 +71,16 @@ const int = (v: unknown, fallback: number) => (typeof v === 'number' ? Math.trun
 const intOrNull = (v: unknown) => (typeof v === 'number' ? Math.trunc(v) : null);
 const strOrNull = (v: unknown) => (v == null ? null : String(v));
 
-export function parseVoucher(json: Record<string, unknown>): VoucherModel {
-  const rawApple = json.appleOfferCodes;
-  const appleOfferCodes: Record<string, string> = {};
-  if (rawApple && typeof rawApple === 'object' && !Array.isArray(rawApple)) {
-    for (const [k, v] of Object.entries(rawApple as Record<string, unknown>)) {
-      appleOfferCodes[k] = String(v);
-    }
+const planMap = (raw: unknown): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) out[k] = String(v);
   }
+  return out;
+};
+
+export function parseVoucher(json: Record<string, unknown>): VoucherModel {
+  const appleOfferCodes = planMap(json.appleOfferCodes);
 
   return {
     id: json.id == null ? '' : String(json.id),
@@ -90,6 +96,7 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
     grantDays: intOrNull(json.grantDays),
     razorpayOfferId: strOrNull(json.razorpayOfferId),
     appleOfferCodes,
+    appleOfferRefNames: planMap(json.appleOfferRefNames),
     previewDiscountType: strOrNull(json.previewDiscountType),
     previewDiscountValue: typeof json.previewDiscountValue === 'number' ? json.previewDiscountValue : null,
     maxRedemptions: int(json.maxRedemptions, -1),
