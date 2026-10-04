@@ -53,15 +53,26 @@ export type ComposeInput = {
   /// the server rather than firing immediately.
   scheduledAt?: string | null;
   imageFile?: Blob | null;
+  /// Clear the stored image. Ignored when a new `imageFile` is given.
+  removeImage?: boolean;
 };
 
 /**
  * Create a campaign. NOTHING IS SENT BY THIS.
  *
- * The campaign is created first so the image has an id to live under, matching
- * how articles and recipes do it.
+ * ORDER MATTERS. The campaign is created as a DRAFT first, so the image has an
+ * id to live under; the image is uploaded; only then is the schedule set.
+ * Scheduling in the create call meant a campaign due soon could be claimed and
+ * sent before its image had arrived.
+ *
+ * `onCreated` hands the id back as soon as the draft exists, so that if the
+ * upload then fails, saving again updates THAT draft instead of creating a
+ * duplicate beside it.
  */
-export async function createNotification(input: ComposeInput): Promise<string> {
+export async function createNotification(
+  input: ComposeInput,
+  onCreated?: (id: string) => void,
+): Promise<string> {
   if (!currentUserCan('notifications:write')) throw new Error('Unauthorized access');
 
   const body: Json = {
@@ -71,14 +82,17 @@ export async function createNotification(input: ComposeInput): Promise<string> {
     audience: input.audience,
   };
   if (input.deeplink) body.deeplink = input.deeplink;
-  if (input.scheduledAt) body.scheduledAt = input.scheduledAt;
 
   const created = await adminApi.createNotification(body);
   const id = String((created.notification as Record<string, unknown> | undefined)?.id ?? '');
   if (!id) throw new ApiException(0, 'create_failed', 'The server did not return a notification.');
+  onCreated?.(id);
 
   if (input.imageFile) {
     await uploadImage(input.imageFile, id);
+  }
+  if (input.scheduledAt) {
+    await adminApi.updateNotification(id, { scheduledAt: input.scheduledAt });
   }
   return id;
 }
@@ -99,13 +113,19 @@ export async function updateNotification(
   if (patch.deeplink !== undefined) body.deeplink = patch.deeplink;
   // Clearing `scheduledAt` demotes a scheduled campaign back to a draft, which
   // is how a send is called off without discarding the copy.
-  if (patch.scheduledAt !== undefined) body.scheduledAt = patch.scheduledAt;
+  if (patch.removeImage && !patch.imageFile) body.imageUrl = null;
 
+  // Copy first, image second, schedule last - for the same reason as
+  // `createNotification`: a campaign must not become sendable before its
+  // image is in place.
   if (Object.keys(body).length > 0) {
     await adminApi.updateNotification(id, body);
   }
   if (patch.imageFile) {
     await uploadImage(patch.imageFile, id);
+  }
+  if (patch.scheduledAt !== undefined) {
+    await adminApi.updateNotification(id, { scheduledAt: patch.scheduledAt });
   }
 }
 

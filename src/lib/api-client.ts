@@ -651,9 +651,9 @@ export const adminApi = {
 
   getNotification: (id: string) => send('GET', `/api/admin/notifications/${id}`),
 
-  /// How many accounts an audience matches, plus a few by name. Counted in SQL
-  /// over the whole user table — the user list endpoint caps at 200 rows a
-  /// page, so counting from loaded rows would quietly under-report.
+  /// How many accounts an audience matches, plus a few by name. Counted
+  /// server-side over every account — the user list endpoint caps at 200 rows
+  /// a page, so counting from loaded rows would quietly under-report.
   previewAudience: (audience: Json) =>
     send('POST', '/api/admin/notifications/audience/preview', { audience }),
 

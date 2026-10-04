@@ -127,6 +127,10 @@ export function NotificationFormDialog({
 
   const [imageFile, setImageFile] = useState<Blob | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
+  /// The draft a failed save already created, so a retry updates it rather
+  /// than leaving a duplicate behind.
+  const [draftId, setDraftId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -139,6 +143,8 @@ export function NotificationFormDialog({
     setErrors({});
     setImageFile(null);
     setImagePreview(existing?.imageUrl ?? null);
+    setRemoveImage(false);
+    setDraftId(null);
 
     setTitle(existing?.title ?? '');
     setBody(existing?.body ?? '');
@@ -214,6 +220,7 @@ export function NotificationFormDialog({
     if (!file) return;
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
+    setRemoveImage(false);
   }
 
   async function save() {
@@ -235,15 +242,21 @@ export function NotificationFormDialog({
             },
       scheduledAt: scheduleOn && scheduledAt ? new Date(scheduledAt).toISOString() : null,
       imageFile,
+      removeImage,
     };
 
     setBusy(true);
+    let createdNow: string | null = null;
     try {
-      if (existing) {
-        await updateNotification(existing.id, input);
-        toast.success('Notification updated');
+      const targetId = existing?.id ?? draftId;
+      if (targetId) {
+        await updateNotification(targetId, input);
+        toast.success(existing ? 'Notification updated' : 'Saved');
       } else {
-        await createNotification(input);
+        await createNotification(input, (id) => {
+          createdNow = id;
+          setDraftId(id);
+        });
         toast.success(
           input.scheduledAt ? 'Scheduled — it will go out at that time' : 'Saved as a draft',
         );
@@ -251,7 +264,15 @@ export function NotificationFormDialog({
       onSaved();
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof ApiException ? e.message : 'Could not save the notification.');
+      const reason = e instanceof ApiException ? e.message : 'Could not save the notification.';
+      if (createdNow || draftId) {
+        // The draft exists but the image or schedule did not stick. It is NOT
+        // scheduled, so nothing will go out; saving again finishes this draft.
+        toast.error(`${reason} It was kept as a draft — save again to retry.`);
+        onSaved();
+      } else {
+        toast.error(reason);
+      }
     } finally {
       setBusy(false);
     }
@@ -346,6 +367,22 @@ export function NotificationFormDialog({
                     <ImagePlus className="size-4" />
                     {imageFile ? 'Replace image' : imagePreview ? 'Replace image' : 'Add image'}
                   </Button>
+                  {(imageFile || imagePreview) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-1"
+                      onClick={() => {
+                        setImageFile(null);
+                        setImagePreview(null);
+                        setRemoveImage(true);
+                        if (fileRef.current) fileRef.current.value = '';
+                      }}
+                    >
+                      Remove image
+                    </Button>
+                  )}
                 </Field>
               </div>
 

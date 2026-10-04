@@ -149,6 +149,11 @@ export function parseRule(json: Record<string, unknown>): NotificationRule {
 export const isEditable = (n: NotificationModel): boolean =>
   n.status === 'draft' || n.status === 'scheduled';
 
+/// A campaign that ran out of retries can be fixed and sent again. Devices an
+/// earlier attempt reached are skipped by the server, so a resend only goes to
+/// the ones that missed it.
+export const isResendable = (n: NotificationModel): boolean => n.status === 'failed';
+
 /// Human labels. Kept beside the union so a new status cannot be added without
 /// this list being the obvious next place to look.
 export const STATUS_LABELS: Record<NotificationStatus, string> = {
