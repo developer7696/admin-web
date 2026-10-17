@@ -59,6 +59,9 @@ const UserWorkoutTrackerPage = lazy(() =>
 const WorkoutLogsPage = lazy(() =>
   import('@/pages/workout-logs').then((m) => ({ default: m.WorkoutLogsPage })),
 );
+const FeatureFlagsPage = lazy(() =>
+  import('@/pages/feature-flags').then((m) => ({ default: m.FeatureFlagsPage })),
+);
 const IamPage = lazy(() => import('@/pages/iam').then((m) => ({ default: m.IamPage })));
 
 /// Pathless layout route whose only job is to give the lazy panes a Suspense
@@ -159,6 +162,7 @@ export function App() {
           <Route path="/programs/:id" element={guarded('programs:read', <ProgramsPage />)} />
           <Route path="/exercises" element={guarded('exercises:read', <ExerciseCataloguePage />)} />
           <Route path="/articles" element={guarded('articles:read', <ArticlesPage />)} />
+          <Route path="/features" element={guarded('features:read', <FeatureFlagsPage />)} />
           <Route path="/iam" element={guarded('iam:read', <IamPage />)} />
           {/* Not guarded, and must not be: it is where the guard sends an account
               that can open nothing. Guarding it would be the redirect loop. */}

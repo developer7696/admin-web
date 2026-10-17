@@ -716,6 +716,17 @@ export const adminApi = {
   updateNotificationRule: (key: string, body: Json) =>
     send('PUT', `/api/admin/notifications/rules/${key}`, body),
 
+  // ── Feature flags ─────────────────────────────────────────────────────────
+  // Remote on/off switches in `content_config/app.features`. Reading needs
+  // `features:read`; flipping one needs `features:write`.
+
+  /// Every flag with its label and current state.
+  featureFlags: () => send('GET', '/api/admin/features'),
+
+  /// Turn one flag on or off. Answers with every flag after the change.
+  setFeatureFlag: (key: string, enabled: boolean) =>
+    send('PUT', `/api/admin/features/${encodeURIComponent(key)}`, { enabled }),
+
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
   // every write needs `iam:write`, which only Super Admin holds.

@@ -11,6 +11,7 @@ import {
   Link2,
   ShieldCheck,
   Tag,
+  ToggleRight,
   TrendingUp,
   UtensilsCrossed,
   Users,
@@ -60,6 +61,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: '/notifications',
         permission: 'notifications:read',
       },
+    ],
+  },
+  {
+    label: 'Settings',
+    entries: [
+      { label: 'Feature Flags', icon: ToggleRight, path: '/features', permission: 'features:read' },
     ],
   },
   {
