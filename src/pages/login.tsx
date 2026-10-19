@@ -1,11 +1,8 @@
-import { useState, type FormEvent } from 'react';
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
-import { toast } from 'sonner';
-import { signInWithEmail, signInWithGoogle } from '@/auth/admin-auth';
+import { useState } from 'react';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import { signInWithGoogle } from '@/auth/admin-auth';
 import { BrandMark } from '@/components/common/brand-mark';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 function GoogleIcon() {
   return (
@@ -30,29 +27,24 @@ function GoogleIcon() {
   );
 }
 
+/// Google is the only way in. The API refuses admin calls from a password
+/// session (`strong_sign_in_required`), so a password form here would only be a
+/// way to sign in and then be told no.
 export function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function run(fn: () => Promise<void>) {
+  async function run() {
     setLoading(true);
     setError(null);
     try {
-      await fn();
+      await signInWithGoogle();
       // On success the auth listener swaps this page out; no navigation here.
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    void run(() => signInWithEmail(email.trim(), password));
   }
 
   return (
@@ -68,52 +60,13 @@ export function LoginPage() {
 
         <div className="mt-12">
           <h2 className="text-lg font-semibold">Sign In</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Enter your admin credentials</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Use the Google account you were given access with. Turn on 2-Step Verification for it
+            in your Google account settings.
+          </p>
         </div>
 
-        <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">Email Address</Label>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                placeholder="admin@example.com"
-                value={email}
-                disabled={loading}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-11 pl-9"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
-                placeholder="Enter your password"
-                value={password}
-                disabled={loading}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-11 pl-9 pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-              </button>
-            </div>
-          </div>
-
+        <div className="mt-8 flex flex-col gap-4">
           {error && (
             <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
@@ -121,37 +74,15 @@ export function LoginPage() {
             </div>
           )}
 
-          <Button type="submit" className="h-11" disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : 'Sign In'}
-          </Button>
-        </form>
-
-        <div className="my-6 flex items-center gap-3">
-          <div className="h-px flex-1 bg-border" />
-          <span className="text-xs font-medium text-muted-foreground">OR</span>
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11 w-full"
-          disabled={loading}
-          onClick={() => void run(signInWithGoogle)}
-        >
-          <GoogleIcon />
-          Sign in with Google
-        </Button>
-
-        <div className="mt-4 text-center">
           <Button
             type="button"
-            variant="link"
-            size="sm"
+            variant="outline"
+            className="h-11 w-full"
             disabled={loading}
-            onClick={() => toast('Contact your administrator to reset your password')}
+            onClick={() => void run()}
           >
-            Forgot Password?
+            {loading ? <Loader2 className="animate-spin" /> : <GoogleIcon />}
+            Sign in with Google
           </Button>
         </div>
       </div>
