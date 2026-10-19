@@ -25,6 +25,7 @@ import { sendTest } from '@/services/notifications-service';
 import {
   CATEGORY_LABELS,
   isEditable,
+  isResendable,
   STATUS_LABELS,
   type NotificationAudience,
   type NotificationModel,
@@ -332,6 +333,30 @@ export function NotificationsPage() {
                           </Button>
                         </>
                       )}
+                      {isResendable(n) && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditing(n);
+                              setFormOpen(true);
+                            }}
+                          >
+                            <SquarePen className="size-4" />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setConfirmSend(n);
+                            }}
+                          >
+                            <Send className="size-4" />
+                            Send again
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -378,8 +403,20 @@ export function NotificationsPage() {
         onConfirm={async () => {
           if (!confirmSend) return;
           try {
-            await sendMutation.mutateAsync(confirmSend.id);
-            toast.success('Sent');
+            const res = await sendMutation.mutateAsync(confirmSend.id);
+            // Report what the server says happened, not what was asked for:
+            // the send can come back still going out, or failed.
+            const after = (res as { notification?: Partial<NotificationModel> } | undefined)
+              ?.notification;
+            if (after?.status === 'sent') {
+              toast.success(
+                `Sent — reached ${String(after.pushSent ?? 0)} devices for ${String(after.recipientCount ?? 0)} people`,
+              );
+            } else if (after?.status === 'failed' || (after?.status === 'scheduled' && after.lastError)) {
+              toast.error(`Send failed: ${after.lastError ?? 'unknown error'}`);
+            } else {
+              toast.success('Going out now — refresh in a moment to see the result');
+            }
           } catch (e) {
             toast.error(e instanceof ApiException ? e.message : 'Could not send.');
           } finally {
