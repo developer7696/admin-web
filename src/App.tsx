@@ -59,6 +59,9 @@ const UserWorkoutTrackerPage = lazy(() =>
 const WorkoutLogsPage = lazy(() =>
   import('@/pages/workout-logs').then((m) => ({ default: m.WorkoutLogsPage })),
 );
+const WorkoutFeedbackPage = lazy(() =>
+  import('@/pages/workout-feedback').then((m) => ({ default: m.WorkoutFeedbackPage })),
+);
 const FeatureFlagsPage = lazy(() =>
   import('@/pages/feature-flags').then((m) => ({ default: m.FeatureFlagsPage })),
 );
@@ -150,6 +153,9 @@ export function App() {
           {/* The cross-user feed. Same users:read as the per-user history it
               links into — it is the same data, listed the other way round. */}
           <Route path="/workout-logs" element={guarded('users:read', <WorkoutLogsPage />)} />
+          {/* The ratings from the app's workout-complete dialog - a field on
+              the same sessions, so the same permission. */}
+          <Route path="/workout-feedback" element={guarded('users:read', <WorkoutFeedbackPage />)} />
           <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
           <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
           <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />

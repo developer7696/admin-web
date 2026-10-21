@@ -19,6 +19,7 @@ import {
 import { fmtDuration, fmtDayMonthYearClock, initialsOf, timeAgo } from '@/lib/format';
 import { PageBar } from '@/components/common/page-header';
 import { StatCard } from '@/components/common/stat-card';
+import { StarRating } from '@/components/common/star-rating';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { SearchInput } from '@/components/common/search-input';
 import { Button } from '@/components/ui/button';
@@ -365,6 +366,16 @@ export function WorkoutLogsPage() {
                         title={`Recorded as ${fmtDuration(row.duration)} — the timer almost certainly kept running in the background. Not counted in the total.`}
                       >
                         {fmtDuration(row.duration)}?
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="hidden w-[5.5rem] shrink-0 justify-end lg:flex">
+                    {row.rating !== null ? (
+                      <StarRating rating={row.rating} />
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground" title="The user did not rate this session">
+                        not rated
                       </span>
                     )}
                   </div>
