@@ -28,7 +28,7 @@ const AuthContext = createContext<AuthState>({
 /// is published, so the synchronous `isCurrentUserAdmin()` used across the
 /// services is always populated by the time anything reads it. This also covers
 /// a page reload, where the session restores through this listener without
-/// `signInWithEmail`/`signInWithGoogle` ever running.
+/// `signInWithGoogle` ever running.
 ///
 /// The permission grant rides the same path for the same reason: the shell
 /// decides which nav entries exist on first paint, so it cannot wait on a second

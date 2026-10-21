@@ -60,39 +60,69 @@ function Field({
   );
 }
 
-/// One Apple offer code per plan.
+/// One Apple offer code per plan, with that offer's reference name.
 ///
 /// Shared by the discount and trial forms because Apple's constraint is the
 /// same for both: offer codes are per-product and a code name cannot be reused
 /// across products in one app, so covering several plans takes one code each.
 /// Only the guidance differs, which is why [blurb] is a prop.
+///
+/// The reference name is what Apple reports on the purchase (not the code the
+/// user typed), so it is what lets the server confirm the offer redeemed was
+/// this voucher's before counting it.
 function AppleOfferCodesSection({
   appleCodes,
   setAppleCodes,
+  refNames,
+  setRefNames,
   blurb,
 }: {
   appleCodes: Record<string, string>;
   setAppleCodes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  refNames: Record<string, string>;
+  setRefNames: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   blurb: React.ReactNode;
 }) {
   return (
     <>
       <SectionTitle>iOS — App Store Connect</SectionTitle>
       <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">{blurb}</p>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
+        Also enter each offer&apos;s <strong>reference name</strong> exactly as it appears in App
+        Store Connect. Apple reports that name on the purchase, and the server only counts a
+        redemption against this voucher when it matches. Without it, iOS redemptions are accepted
+        unverified.
+      </p>
       <div className="flex flex-col gap-3">
         {PLAN_KEYS.map((key) => (
-          <Field key={key} label={planKeyLabel(key)}>
-            <Input
-              value={appleCodes[key] ?? ''}
-              placeholder="Apple offer code"
-              onChange={(e) => setAppleCodes((prev) => ({ ...prev, [key]: e.target.value }))}
-            />
-          </Field>
+          <div key={key} className="grid gap-3 sm:grid-cols-2">
+            <Field label={planKeyLabel(key)}>
+              <Input
+                value={appleCodes[key] ?? ''}
+                placeholder="Apple offer code"
+                onChange={(e) => setAppleCodes((prev) => ({ ...prev, [key]: e.target.value }))}
+              />
+            </Field>
+            <Field label="Offer reference name">
+              <Input
+                value={refNames[key] ?? ''}
+                placeholder="e.g. Welcome 30 Day Trial"
+                onChange={(e) => setRefNames((prev) => ({ ...prev, [key]: e.target.value }))}
+              />
+            </Field>
+          </div>
         ))}
       </div>
     </>
   );
 }
+
+const filled = (map: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(map)
+      .map(([k, v]) => [k, v.trim()])
+      .filter(([, v]) => v.length > 0),
+  );
 
 const CODE_RE = /^[A-Za-z0-9_-]+$/;
 
@@ -117,6 +147,9 @@ export function VoucherFormDialog({
   );
   const [appleCodes, setAppleCodes] = useState<Record<string, string>>(() =>
     Object.fromEntries(PLAN_KEYS.map((k) => [k, voucher?.appleOfferCodes[k] ?? ''])),
+  );
+  const [refNames, setRefNames] = useState<Record<string, string>>(() =>
+    Object.fromEntries(PLAN_KEYS.map((k) => [k, voucher?.appleOfferRefNames[k] ?? ''])),
   );
   const [maxRedemptions, setMaxRedemptions] = useState(String(voucher?.maxRedemptions ?? -1));
   const [perUserLimit, setPerUserLimit] = useState(String(voucher?.perUserLimit ?? 1));
@@ -144,15 +177,8 @@ export function VoucherFormDialog({
   const update = useUpdateVoucher();
   const submitting = create.isPending || update.isPending;
 
-  const filledAppleCodes = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(appleCodes)
-          .map(([k, v]) => [k, v.trim()])
-          .filter(([, v]) => v.length > 0),
-      ),
-    [appleCodes],
-  );
+  const filledAppleCodes = useMemo(() => filled(appleCodes), [appleCodes]);
+  const filledRefNames = useMemo(() => filled(refNames), [refNames]);
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
@@ -238,10 +264,12 @@ export function VoucherFormDialog({
             ...(Object.keys(filledAppleCodes).length > 0
               ? { appleOfferCodes: filledAppleCodes }
               : {}),
+            ...(Object.keys(filledRefNames).length > 0 ? { appleOfferRefNames: filledRefNames } : {}),
           }
         : {
             ...(razorpayOfferId.trim() ? { razorpayOfferId: razorpayOfferId.trim() } : {}),
             ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
+            ...(Object.keys(filledRefNames).length > 0 ? { appleOfferRefNames: filledRefNames } : {}),
             // Display-only preview. Sent only when BOTH are present — the server
             // rejects a type without a value, and a half-filled preview would
             // show the user a wrong number.
@@ -418,6 +446,8 @@ export function VoucherFormDialog({
               <AppleOfferCodesSection
                 appleCodes={appleCodes}
                 setAppleCodes={setAppleCodes}
+                refNames={refNames}
+                setRefNames={setRefNames}
                 blurb={
                   <>
                     Required for iOS — without a code for a plan, this voucher is refused on that
@@ -487,6 +517,8 @@ export function VoucherFormDialog({
               <AppleOfferCodesSection
                 appleCodes={appleCodes}
                 setAppleCodes={setAppleCodes}
+                refNames={refNames}
+                setRefNames={setRefNames}
                 blurb="Apple offer codes are per-product, so a campaign covering several plans needs a separate code for each. Generate them in App Store Connect → your subscription → Offer Codes, then paste each one against its plan. Leave blank if Android-only."
               />
             </>

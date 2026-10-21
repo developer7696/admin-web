@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { SquarePen, Trash2 } from 'lucide-react';
+import { RefreshCw, SquarePen, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   deleteComplaint,
   fetchSupportCatalog,
   getComplaintStatistics,
+  listComplaints,
   markComplaintAsRead,
-  subscribeComplaints,
   updateComplaintPriority,
   updateComplaintStatus,
   type ComplaintRow,
 } from '@/services/complaints-service';
-import { fmtDateTime, toDate } from '@/lib/format';
+import { fmtDateTime } from '@/lib/format';
 import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
@@ -33,8 +33,21 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
-/// Customer support queue: the `complaints` collection, per-status tabs, and a
+/// Customer support queue, through the admin API: per-status tabs and a
 /// per-complaint status/priority/response editor.
+///
+/// The queue is a fetch rather than a Firestore stream — the API cannot stream,
+/// so every mutation refetches. The trade is losing tickets that arrive while
+/// this page sits open; the reload action picks those up.
+///
+/// A ticket nobody has triaged yet reads as `pending`/`medium` server-side, so
+/// the pending tab now contains the same rows the header counts as pending —
+/// under Firestore the tab excluded them, because an equality filter cannot
+/// match a field that is not there.
+
+/// One tab's rows. The tab value ('all' or a status) is part of the key, so
+/// switching tabs is a fetch that caches per tab.
+const complaintsKey = (status: string) => ['complaints', status] as const;
 
 function statusTint(status: string): string {
   switch (status) {
@@ -121,17 +134,16 @@ function UpdateDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // The row's own status is always one of the configured ones — the API reports
+  // the default for an untriaged ticket — but the catalogue is admin-authored
+  // and could have lost a label, so the fallback stays.
   const [status, setStatus] = useState(
-    statuses.includes(String(complaint.status ?? ''))
-      ? String(complaint.status)
-      : (statuses[0] ?? ''),
+    statuses.includes(complaint.status) ? complaint.status : (statuses[0] ?? ''),
   );
   const [priority, setPriority] = useState(
-    priorities.includes(String(complaint.priority ?? ''))
-      ? String(complaint.priority)
-      : (priorities[0] ?? ''),
+    priorities.includes(complaint.priority) ? complaint.priority : (priorities[0] ?? ''),
   );
-  const [response, setResponse] = useState(String(complaint.adminResponse ?? ''));
+  const [response, setResponse] = useState(complaint.adminResponse ?? '');
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -232,8 +244,8 @@ function DetailsDialog({
   /// action.
   canWrite: boolean;
 }) {
-  const createdAt = toDate(complaint.createdAt) ?? new Date();
-  const respondedAt = toDate(complaint.adminResponseAt);
+  const createdAt = complaint.createdAt ?? new Date();
+  const respondedAt = complaint.adminResponseAt;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -244,31 +256,29 @@ function DetailsDialog({
         <DialogBody>
           <div className="flex items-center gap-4">
             <Avatar
-              name={String(complaint.userName ?? 'U')}
-              photo={complaint.userProfilePhoto as string | undefined}
+              name={complaint.userName ?? 'U'}
+              photo={complaint.userProfilePhoto ?? undefined}
               size={60}
             />
             <div className="min-w-0">
-              <p className="truncate text-lg font-bold">{String(complaint.userName ?? 'Anonymous')}</p>
-              <p className="truncate text-sm text-muted-foreground">
-                {String(complaint.userEmail ?? '')}
-              </p>
+              <p className="truncate text-lg font-bold">{complaint.userName ?? 'Anonymous'}</p>
+              <p className="truncate text-sm text-muted-foreground">{complaint.userEmail ?? ''}</p>
             </div>
           </div>
 
           <div className="mt-5">
-            <DetailRow label="Category" value={String(complaint.category ?? '')} />
-            <DetailRow label="Status" value={String(complaint.status ?? '')} />
-            <DetailRow label="Priority" value={String(complaint.priority ?? '')} />
+            <DetailRow label="Category" value={complaint.category} />
+            <DetailRow label="Status" value={complaint.status} />
+            <DetailRow label="Priority" value={complaint.priority} />
             <DetailRow label="Created At" value={fmtDateTime(createdAt)} />
           </div>
 
-          <Block title="Subject">{String(complaint.subject ?? '')}</Block>
-          <Block title="Description">{String(complaint.description ?? '')}</Block>
+          <Block title="Subject">{complaint.subject}</Block>
+          <Block title="Description">{complaint.description}</Block>
 
           {complaint.adminResponse != null && (
             <Block title="Admin Response" tone="blue">
-              {String(complaint.adminResponse)}
+              {complaint.adminResponse}
               <p className="mt-2 text-xs text-muted-foreground">
                 Responded at: {fmtDateTime(respondedAt ?? new Date())}
               </p>
@@ -305,9 +315,6 @@ function DetailsDialog({
 
 export function ComplaintsPage() {
   const [tab, setTab] = useState<string>('all');
-  const [rows, setRows] = useState<ComplaintRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
   const [details, setDetails] = useState<ComplaintRow | null>(null);
   const [updating, setUpdating] = useState<ComplaintRow | null>(null);
@@ -330,34 +337,26 @@ export function ComplaintsPage() {
     ...statuses.map((s) => [s, s.replace(/_/g, ' ')] as const),
   ];
 
-  useEffect(() => {
-    setLoading(true);
-    return subscribeComplaints(
-      tab,
-      (next) => {
-        setRows(next);
-        setLoading(false);
-        setError(null);
-      },
-      (e) => {
-        setError(e);
-        setLoading(false);
-      },
-    );
-  }, [tab]);
+  // `tab` is 'all' or one status, which is exactly what the endpoint's `status`
+  // filter accepts. Rows come back newest-first for every tab, so there is no
+  // client-side sort any more.
+  const {
+    data,
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: complaintsKey(tab),
+    queryFn: () => listComplaints({ status: tab }),
+  });
+  const rows = data?.complaints ?? [];
 
-  // The per-status query cannot also order server-side without a composite
-  // index, so newest-first is applied here for every tab.
-  const sorted = useMemo(
-    () =>
-      [...rows].sort(
-        (a, b) =>
-          (toDate(b.createdAt)?.getTime() ?? 0) - (toDate(a.createdAt)?.getTime() ?? 0),
-      ),
-    [rows],
-  );
-
-  const refreshStats = () => qc.invalidateQueries({ queryKey: ['complaint-stats'] });
+  /// Both queries: the rows, because nothing pushes them any more, and the
+  /// header counts, which are a separate aggregate.
+  const reload = () => {
+    void qc.invalidateQueries({ queryKey: ['complaints'] });
+    void qc.invalidateQueries({ queryKey: ['complaint-stats'] });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -373,7 +372,12 @@ export function ComplaintsPage() {
             : `${stats.total} total · ${stats.pending} pending · ${stats.inProgress} in progress · ${stats.resolved} resolved`
         }
         className="shrink-0 px-4 pb-2.5 pt-4"
-      />
+      >
+        {/* The queue no longer updates itself, so reloading it is an action. */}
+        <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          <RefreshCw /> Reload
+        </Button>
+      </PageBar>
 
       <div className="shrink-0 border-b border-border bg-card px-4 pb-2.5">
         <Tabs value={tab} onValueChange={setTab}>
@@ -389,21 +393,29 @@ export function ComplaintsPage() {
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
         {loading && <LoadingState />}
-        {error && <ErrorState error={error} />}
-        {!loading && !error && sorted.length === 0 && <EmptyState title="No complaints found" />}
+        {error && <ErrorState error={error} onRetry={() => void refetch()} />}
+        {data && rows.length === 0 && <EmptyState title="No complaints found" />}
 
-        {sorted.map((c) => {
-          const isRead = c.isRead === true;
-          const status = String(c.status ?? '');
-          const priority = String(c.priority ?? '');
-          const createdAt = toDate(c.createdAt) ?? new Date();
+        {/* The queue is paged server-side and this table has no pager yet, so
+            say so rather than quietly ending at the page boundary. */}
+        {data?.hasMore && (
+          <p className="mb-3 text-xs text-muted-foreground">
+            Showing the {rows.length} newest. Filter by status to see older tickets.
+          </p>
+        )}
+
+        {rows.map((c) => {
+          const isRead = c.isRead;
+          const status = c.status;
+          const priority = c.priority;
+          const createdAt = c.createdAt ?? new Date();
 
           return (
             <Card key={c.id} className="mb-3">
               <button
                 type="button"
                 onClick={() => {
-                  if (!isRead) void markComplaintAsRead(c.id).then(refreshStats);
+                  if (!isRead) void markComplaintAsRead(c.id).then(reload);
                   setDetails(c);
                 }}
                 className="block w-full p-4 text-left"
@@ -415,15 +427,10 @@ export function ComplaintsPage() {
                       isRead ? 'bg-transparent' : 'bg-blue-500',
                     )}
                   />
-                  <Avatar
-                    name={String(c.userName ?? 'U')}
-                    photo={c.userProfilePhoto as string | undefined}
-                  />
+                  <Avatar name={c.userName ?? 'U'} photo={c.userProfilePhoto ?? undefined} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">{String(c.userName ?? 'Anonymous')}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {String(c.userEmail ?? '')}
-                    </p>
+                    <p className="truncate font-bold">{c.userName ?? 'Anonymous'}</p>
+                    <p className="truncate text-xs text-muted-foreground">{c.userEmail ?? ''}</p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <span
@@ -445,17 +452,15 @@ export function ComplaintsPage() {
                 <div className="mt-3 flex items-center gap-2">
                   {c.category ? (
                     <span className="shrink-0 rounded-lg bg-blue-500/10 px-2 py-1 text-[10px] font-bold text-blue-600">
-                      {String(c.category)}
+                      {c.category}
                     </span>
                   ) : null}
                   <span className="min-w-0 flex-1 truncate text-base font-semibold">
-                    {String(c.subject ?? '')}
+                    {c.subject}
                   </span>
                 </div>
 
-                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                  {String(c.description ?? '')}
-                </p>
+                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
               </button>
 
               <div className="flex items-center justify-between px-4 pb-3">
@@ -494,7 +499,7 @@ export function ComplaintsPage() {
           statuses={statuses}
           priorities={priorities}
           onClose={() => setUpdating(null)}
-          onSaved={refreshStats}
+          onSaved={reload}
         />
       )}
 
@@ -509,7 +514,7 @@ export function ComplaintsPage() {
           onConfirm={async () => {
             try {
               await deleteComplaint(deleting);
-              refreshStats();
+              reload();
               toast.success('Complaint deleted successfully!');
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Failed to delete complaint');

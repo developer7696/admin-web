@@ -1,8 +1,8 @@
 import {
   GoogleAuthProvider,
-  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as fbSignOut,
+  type IdTokenResult,
   type User,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -26,6 +26,13 @@ export const ADMIN_ROLE = 'admin';
 /// mutating call goes to the backend, which re-checks the same claim.
 let currentUserPerms: ReadonlySet<Permission> = new Set();
 
+/// Whether this session came from Google or a Firebase second factor — the
+/// same rule the backend's `isStrongSignIn` applies to every admin route. A
+/// password session is treated as holding nothing, because the API would
+/// answer every call it made with `strong_sign_in_required` anyway.
+const isStrongSignIn = (token: IdTokenResult): boolean =>
+  token.signInProvider === 'google.com' || !!token.signInSecondFactor;
+
 /// Resolve `user`'s permissions from its ID token and cache them. Pass null on
 /// sign-out. Returns whether they may use the panel at all.
 ///
@@ -39,7 +46,9 @@ export async function refreshAdminClaim(user: User | null, forceRefresh = false)
   }
   try {
     const token = await user.getIdTokenResult(forceRefresh);
-    currentUserPerms = permissionsOfClaims(token.claims as Record<string, unknown>);
+    currentUserPerms = isStrongSignIn(token)
+      ? permissionsOfClaims(token.claims as Record<string, unknown>)
+      : new Set();
   } catch {
     // Network/token failure must not silently grant access.
     currentUserPerms = new Set();
@@ -69,13 +78,6 @@ export const isAdminUserData = (data: { role?: unknown } | null | undefined) =>
 
 function authErrorMessage(code: string, fallback: string): string {
   switch (code) {
-    case 'auth/user-not-found':
-      return 'User not found';
-    case 'auth/wrong-password':
-    case 'auth/invalid-credential':
-      return 'Incorrect password';
-    case 'auth/invalid-email':
-      return 'Invalid email address';
     case 'auth/user-disabled':
       return 'User account has been disabled';
     case 'auth/too-many-requests':
@@ -114,15 +116,8 @@ async function requireAdmin(): Promise<void> {
   }
 }
 
-export async function signInWithEmail(email: string, password: string): Promise<void> {
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (e) {
-    rethrowAuth(e);
-  }
-  await requireAdmin();
-}
-
+/// The panel's only sign-in. A password alone is not enough to reach it (see
+/// `isStrongSignIn`), so it does not offer one.
 export async function signInWithGoogle(): Promise<void> {
   try {
     await signInWithPopup(auth, new GoogleAuthProvider());

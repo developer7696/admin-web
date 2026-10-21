@@ -7,6 +7,7 @@ import {
   ImagePlus,
   Loader2,
   Plus,
+  RefreshCw,
   SquarePen,
   Trash2,
   UtensilsCrossed,
@@ -16,15 +17,14 @@ import { toast } from 'sonner';
 import {
   createRecipe,
   deleteRecipe,
-  fetchRecipeFilters,
   getRecipeStatistics,
-  subscribeRecipes,
+  listRecipes,
   togglePublishStatus,
   updateRecipe,
   type RecipeInput,
   type RecipeRow,
 } from '@/services/recipes-service';
-import { fmtDateTime, toDate } from '@/lib/format';
+import { fmtDateTime } from '@/lib/format';
 import { useCan } from '@/auth/auth-context';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
@@ -46,9 +46,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
-/// Recipe management: the live `recipes` collection, a per-recipe editor, and a
-/// create form. Publishing is a per-row toggle rather than a form field so a
-/// draft can be pushed live without reopening the editor.
+/// Recipe management, through the admin API: the authoring listing (drafts
+/// included), a per-recipe editor, and a create form. Publishing is a per-row
+/// toggle rather than a form field so a draft can be pushed live without
+/// reopening the editor — which is also how a newly created recipe goes live,
+/// since the API creates it as a draft.
+///
+/// The list is a fetch rather than a Firestore stream — the API cannot stream,
+/// so every mutation refetches. The trade is losing recipes another admin
+/// changed while this page sits open; the reload action picks those up.
+
+const recipesKey = ['recipes'] as const;
 
 function difficultyTint(difficulty: string): string {
   switch (difficulty.toLowerCase()) {
@@ -411,9 +419,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 export function RecipesPage() {
   const [tab, setTab] = useState('list');
-  const [rows, setRows] = useState<RecipeRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
   const [createForm, setCreateForm] = useState<FormState>(emptyForm);
   const [createImage, setCreateImage] = useState<File | null>(null);
@@ -425,25 +430,27 @@ export function RecipesPage() {
   const [deleting, setDeleting] = useState<RecipeRow | null>(null);
 
   const qc = useQueryClient();
+  const {
+    data,
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({ queryKey: recipesKey, queryFn: listRecipes });
   const { data: stats } = useQuery({ queryKey: ['recipe-stats'], queryFn: getRecipeStatistics });
-  const { data: filters } = useQuery({ queryKey: ['recipe-filters'], queryFn: fetchRecipeFilters });
-  const tags = filters?.tags ?? [];
-  const difficulties = filters?.difficulties ?? [];
-  const refreshStats = () => qc.invalidateQueries({ queryKey: ['recipe-stats'] });
 
-  useEffect(() => {
-    return subscribeRecipes(
-      (next) => {
-        setRows(next);
-        setLoading(false);
-        setError(null);
-      },
-      (e) => {
-        setError(e);
-        setLoading(false);
-      },
-    );
-  }, []);
+  const rows = data?.recipes ?? [];
+  // The listing embeds the filter catalogue, so the chips cost no second
+  // request — same document `GET /api/content/recipe-filters` serves the app.
+  const tags = data?.filters.tags ?? [];
+  const difficulties = data?.filters.difficulties ?? [];
+
+  /// Every mutation reloads both: the rows, because there is no stream, and the
+  /// whole-library counts in the header, which the listing's own stats would
+  /// only agree with while no filter is applied.
+  const reload = () => {
+    void qc.invalidateQueries({ queryKey: recipesKey });
+    void qc.invalidateQueries({ queryKey: ['recipe-stats'] });
+  };
 
   async function submitCreate() {
     if (!createForm.name.trim()) {
@@ -453,10 +460,12 @@ export function RecipesPage() {
     setCreating(true);
     try {
       await createRecipe(toInput(createForm), createImage);
-      toast.success('Recipe created successfully!');
+      // Says "draft" because that is what the API creates — the row's publish
+      // toggle is what makes it visible in the app.
+      toast.success('Recipe saved as a draft.');
       setCreateForm(emptyForm());
       setCreateImage(null);
-      refreshStats();
+      reload();
       setTab('list');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to create recipe. Please try again.');
@@ -478,7 +487,12 @@ export function RecipesPage() {
             : 'Loading…'
         }
         className="shrink-0 px-4 pb-2.5 pt-4"
-      />
+      >
+        {/* The list no longer updates itself, so reloading it is an action. */}
+        <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          <RefreshCw /> Reload
+        </Button>
+      </PageBar>
 
       <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-border bg-card px-4 pb-2.5">
@@ -493,14 +507,14 @@ export function RecipesPage() {
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
           <TabsContent value="list" className="mt-0">
             {loading && <LoadingState />}
-            {error && <ErrorState error={error} />}
-            {!loading && !error && rows.length === 0 && (
+            {error && <ErrorState error={error} onRetry={() => void refetch()} />}
+            {data && rows.length === 0 && (
               <EmptyState icon={<UtensilsCrossed className="size-10" />} title="No recipes found" />
             )}
 
             {rows.map((recipe) => {
               const isPublished = recipe.isPublished === true;
-              const createdAt = toDate(recipe.createdAt) ?? new Date();
+              const createdAt = recipe.createdAt ?? new Date();
               const imageUrl = recipe.imageUrl as string | undefined;
               const difficulty = String(recipe.difficulty ?? 'Easy');
 
@@ -573,7 +587,7 @@ export function RecipesPage() {
                         onClick={() => {
                           void togglePublishStatus(recipe.id, isPublished).then(
                             () => {
-                              refreshStats();
+                              reload();
                               toast.success(isPublished ? 'Recipe unpublished!' : 'Recipe published!');
                             },
                             (e: unknown) =>
@@ -747,7 +761,7 @@ export function RecipesPage() {
           tags={tags}
           difficulties={difficulties}
           onClose={() => setEditing(null)}
-          onSaved={refreshStats}
+          onSaved={reload}
         />
       )}
 
@@ -761,8 +775,10 @@ export function RecipesPage() {
           destructive
           onConfirm={async () => {
             try {
-              await deleteRecipe(deleting.id, deleting.imageUrl as string | undefined);
-              refreshStats();
+              // The image is left in blob storage on purpose — see
+              // `deleteRecipe`. Nothing to pass here any more.
+              await deleteRecipe(deleting.id);
+              reload();
               toast.success('Recipe deleted successfully!');
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Failed to delete recipe');

@@ -1,41 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import {
-  getExerciseProgress,
-  getMuscleGroupStats,
-  getRecentWorkouts,
-  getWorkoutStats,
-  type ExerciseProgress,
-  type WorkoutSession,
-  type WorkoutStats,
-} from '@/services/admin-workout-service';
+import { getWorkoutTracker, type WorkoutTrackerData } from '@/services/admin-workout-service';
 
-export type WorkoutTrackerData = {
-  stats: WorkoutStats;
-  recentWorkouts: WorkoutSession[];
-  exerciseProgress: ExerciseProgress[];
-  muscleGroupStats: Record<string, number>;
-};
+export type { WorkoutTrackerData };
 
-/// Bundles the four parallel reads the workout tracker needs for one user into
-/// a single query keyed by uid.
+/// The tracker screen's data, as one query keyed by uid.
+///
+/// It was four parallel reads — a `users/{uid}` document fetch plus three walks
+/// of the workout tree — and is now a single `GET /api/admin/workouts/users/{uid}`
+/// that the service reduces into all four views. The `users` document is no
+/// longer read at all: the lifetime workout counter it was fetched for comes
+/// back in the same response's `stats`.
+///
+/// Nothing here was live before and nothing is live now; the screen's Refresh
+/// button invalidates this key.
 export function useWorkoutTracker(uid: string) {
   return useQuery<WorkoutTrackerData>({
     queryKey: ['workout-tracker', uid],
     enabled: uid.length > 0,
-    queryFn: async () => {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      const userData = userDoc.data() ?? {};
-
-      const [stats, recentWorkouts, exerciseProgress, muscleGroupStats] = await Promise.all([
-        getWorkoutStats(uid, userData),
-        getRecentWorkouts(uid, 30),
-        getExerciseProgress(uid),
-        getMuscleGroupStats(uid),
-      ]);
-
-      return { stats, recentWorkouts, exerciseProgress, muscleGroupStats };
-    },
+    queryFn: () => getWorkoutTracker(uid),
   });
 }

@@ -1,7 +1,10 @@
 /// Browser-download CSV export. Port of lib/utils/csv_export.dart.
+export function toCsv(rows: unknown[][]): string {
+  return rows.map((row) => row.map(escapeCsvField).join(',')).join('\r\n');
+}
+
 export function downloadCsv(filename: string, rows: unknown[][]): void {
-  const csv = rows.map((row) => row.map(escapeCsvField).join(',')).join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
