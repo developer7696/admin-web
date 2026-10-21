@@ -27,7 +27,7 @@ import type {
 } from '@/types/dashboard';
 import { getUsersCsvData, syncToGoogleSheets } from '@/services/admin-user-service';
 import { downloadCsv } from '@/lib/csv';
-import { rupeesFromPaise, timeAgo, timelineSubtitle, toDateInput } from '@/lib/format';
+import { formatMoney, rupeesFromPaise, timeAgo, timelineSubtitle, toDateInput } from '@/lib/format';
 import { PageShell } from '@/components/common/page-header';
 import { ShareCard, SignupTrendChart } from '@/components/common/dashboard-charts';
 import { ErrorState, LoadingState } from '@/components/common/states';
@@ -310,6 +310,15 @@ function Overview({ data }: { data: DashboardOverview }) {
           <p className="tabular text-2xl font-extrabold leading-none">
             {rupeesFromPaise(subscriptions.mrrPaise)}
           </p>
+          {/* Other currencies stand beside the rupee figure, never added to it:
+              summing them would need an exchange rate this panel does not have. */}
+          {Object.entries(subscriptions.mrrByCurrency)
+            .filter(([currency, minor]) => currency !== 'INR' && minor > 0)
+            .map(([currency, minor]) => (
+              <p key={currency} className="tabular -mt-1 text-sm font-bold text-muted-foreground">
+                + {formatMoney(minor, currency)} / month in {currency}
+              </p>
+            ))}
           {/* Said plainly on the card rather than in a tooltip: this is list
               price for the entitlements currently held, not money received. */}
           <p className="text-xs text-muted-foreground">

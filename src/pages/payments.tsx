@@ -7,6 +7,7 @@ import { HeaderSlot } from '@/app/header-slot';
 import { SearchInput } from '@/components/common/search-input';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { PageBar } from '@/components/common/page-header';
+import { InternationalPaymentsCard } from '@/components/common/international-payments-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { Json } from '@/lib/api-client';
@@ -265,6 +266,10 @@ export function PaymentsPage() {
           Refresh
         </Button>
       </PageBar>
+
+      <div className="shrink-0 px-4">
+        <InternationalPaymentsCard />
+      </div>
 
       {usersQ.isLoading && <LoadingState />}
       {usersQ.isError && (

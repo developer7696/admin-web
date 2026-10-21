@@ -141,6 +141,8 @@ export function VoucherFormDialog({
   // Empty for a new voucher: the length is the admin's to set, never a default.
   const [grantDays, setGrantDays] = useState(voucher?.grantDays != null ? String(voucher.grantDays) : '');
   const [razorpayOfferId, setRazorpayOfferId] = useState(voucher?.razorpayOfferId ?? '');
+  const [razorpayOfferIdUsd, setRazorpayOfferIdUsd] = useState(voucher?.razorpayOfferIdUsd ?? '');
+  const [razorpayOfferIdEur, setRazorpayOfferIdEur] = useState(voucher?.razorpayOfferIdEur ?? '');
   const [previewDiscountType, setPreviewDiscountType] = useState(voucher?.previewDiscountType ?? '');
   const [previewDiscountValue, setPreviewDiscountValue] = useState(
     voucher?.previewDiscountValue != null ? String(voucher.previewDiscountValue) : '',
@@ -268,6 +270,17 @@ export function VoucherFormDialog({
           }
         : {
             ...(razorpayOfferId.trim() ? { razorpayOfferId: razorpayOfferId.trim() } : {}),
+            // Cleared on edit with an explicit null; omitted on create.
+            ...(razorpayOfferIdUsd.trim()
+              ? { razorpayOfferIdUsd: razorpayOfferIdUsd.trim() }
+              : isEdit && voucher.razorpayOfferIdUsd
+                ? { razorpayOfferIdUsd: null }
+                : {}),
+            ...(razorpayOfferIdEur.trim()
+              ? { razorpayOfferIdEur: razorpayOfferIdEur.trim() }
+              : isEdit && voucher.razorpayOfferIdEur
+                ? { razorpayOfferIdEur: null }
+                : {}),
             ...(Object.keys(filledAppleCodes).length > 0 ? { appleOfferCodes: filledAppleCodes } : {}),
             ...(Object.keys(filledRefNames).length > 0 ? { appleOfferRefNames: filledRefNames } : {}),
             // Display-only preview. Sent only when BOTH are present — the server
@@ -472,6 +485,26 @@ export function VoucherFormDialog({
                   onChange={(e) => setRazorpayOfferId(e.target.value)}
                 />
               </Field>
+              <Field
+                label="Razorpay Offer ID — USD (optional)"
+                helper="For international users priced in USD. A Razorpay Offer only applies to the plans it was created for, so create a separate one on the USD plans. Leave blank and this code is unavailable to USD users."
+              >
+                <Input
+                  value={razorpayOfferIdUsd}
+                  placeholder="offer_XXXXXXXXXXXX"
+                  onChange={(e) => setRazorpayOfferIdUsd(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Razorpay Offer ID — EUR (optional)"
+                helper="For eurozone users priced in EUR. Create it on the EUR plans. Leave blank and this code is unavailable to EUR users."
+              >
+                <Input
+                  value={razorpayOfferIdEur}
+                  placeholder="offer_XXXXXXXXXXXX"
+                  onChange={(e) => setRazorpayOfferIdEur(e.target.value)}
+                />
+              </Field>
 
               <SectionTitle>Android — what the app shows (optional)</SectionTitle>
               <p className="mb-3 text-[12.5px] leading-relaxed text-muted-foreground">
@@ -501,7 +534,9 @@ export function VoucherFormDialog({
                   label="Preview value"
                   error={fieldErrors.previewDiscountValue}
                   helper={
-                    previewDiscountType === 'flat' ? 'Paise — 20000 = ₹200 off' : 'Percent off, 1-100'
+                    previewDiscountType === 'flat'
+                      ? 'Paise — 20000 = ₹200 off. INR only: USD/EUR users see no preview for a flat discount.'
+                      : 'Percent off, 1-100'
                   }
                 >
                   <Input
