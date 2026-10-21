@@ -1,7 +1,7 @@
-import { useRef } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Camera, ChevronDown, LogOut } from 'lucide-react';
+import { Camera, ChevronDown, LogOut, Menu, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { BrandMark } from '@/components/common/brand-mark';
 import { signOut } from '@/auth/admin-auth';
@@ -22,6 +22,10 @@ import { visibleSections } from './nav';
 /// panel: a full-width top navbar (brand + per-page controls + profile), with
 /// the sidebar and content sitting below it side by side — rather than a
 /// sidebar spanning the full window height.
+///
+/// Below `lg` the sidebar would take half a phone's width from every page, so
+/// it becomes a drawer behind a menu button instead, closed again by picking a
+/// page, tapping outside it or Escape.
 export function Shell() {
   return (
     <HeaderSlotProvider>
@@ -57,17 +61,41 @@ function ShellChrome() {
   // bug, not as a permission.
   const sections = visibleSections(perms);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-card px-6">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:gap-4 lg:h-16 lg:px-6">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((open) => !open)}
+          className="-ml-1 rounded-md p-2 text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="admin-nav"
+        >
+          {menuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
+        </button>
         <div className="flex size-[34px] shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-primary to-[#5B21D6]">
           <BrandMark className="h-[21px]" />
         </div>
-        <span className="shrink-0 truncate text-[15.5px] font-extrabold tracking-tight">
+        <span className="hidden shrink-0 truncate text-[15.5px] font-extrabold tracking-tight min-[380px]:inline">
           Aarambh Admin
         </span>
 
-        <HeaderSlotTarget className="flex min-w-0 flex-1 items-center" />
+        <HeaderSlotTarget className="scrollbar-thin flex min-w-0 flex-1 items-center overflow-x-auto" />
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full border border-border bg-background p-1.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -105,8 +133,23 @@ function ShellChrome() {
         />
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <nav className="scrollbar-thin w-[264px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-3 pb-3 pt-5">
+      <div className="relative flex min-h-0 flex-1">
+        {menuOpen && (
+          <div
+            className="absolute inset-0 z-30 bg-black/40 lg:hidden"
+            onClick={() => setMenuOpen(false)}
+            aria-hidden
+          />
+        )}
+        <nav
+          id="admin-nav"
+          className={cn(
+            'scrollbar-thin w-[264px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-3 pb-3 pt-5',
+            // A drawer over the content below lg; in the row from lg up.
+            'absolute inset-y-0 left-0 z-40 shadow-xl transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 lg:shadow-none',
+            menuOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
           {sections.map((section) => (
             <div key={section.label} className="mb-5">
               <p className="px-3 pb-2 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.8px] text-slate-400">
@@ -116,6 +159,7 @@ function ShellChrome() {
                 <NavLink
                   key={path}
                   to={path}
+                  onClick={() => setMenuOpen(false)}
                   className={({ isActive }) =>
                     cn(
                       'mb-1 flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13.5px] transition-colors',

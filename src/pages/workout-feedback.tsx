@@ -165,7 +165,7 @@ export function WorkoutFeedbackPage() {
       : undefined;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4">
       <PageBar
         title="Workout Feedback"
         status={status}
@@ -205,7 +205,7 @@ export function WorkoutFeedbackPage() {
         <LoadingState label="Loading workout feedback…" />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard
               label="Average rating"
               value={summary.average === null ? '—' : `${summary.average.toFixed(1)} / 5`}
@@ -226,9 +226,9 @@ export function WorkoutFeedbackPage() {
               tone="success"
             />
             <StatCard
-              label="Low ratings (1–2★)"
+              label="Low (1–2★)"
               value={low}
-              hint={low > 0 ? 'Click 1 or 2 in the breakdown to see them' : 'None in this range'}
+              hint={low > 0 ? 'Tap to see them' : 'None in this range'}
               icon={<ThumbsDown />}
               tone={low > 0 ? 'warning' : 'default'}
               onClick={low > 0 ? () => setStars(summary.distribution['1'] > 0 ? 1 : 2) : undefined}
@@ -266,7 +266,7 @@ export function WorkoutFeedbackPage() {
                     <button
                       type="button"
                       onClick={() => navigate(`/users/${row.uid}/workouts`)}
-                      className="truncate text-sm font-semibold hover:underline"
+                      className="block max-w-full truncate text-left text-sm font-semibold hover:underline"
                       title="Open this user's workout history"
                     >
                       {displayName(row)}
