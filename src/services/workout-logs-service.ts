@@ -43,6 +43,8 @@ export type LogSession = {
   totalSets: number;
   completedSets: number;
   volume: number;
+  /// The 1–5 stars from the app's workout-complete dialog; null when not rated.
+  rating: number | null;
   exercises: LogExercise[] | null;
 };
 
@@ -79,6 +81,10 @@ const dateOrNull = (v: unknown): Date | null => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 };
+
+/// A whole 1–5, or null — anything else is not a rating the app could have sent.
+export const ratingOf = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 5 ? v : null;
 
 const parseSet = (raw: Record<string, unknown>, index: number): LogSet => ({
   setNumber: num(raw.setNumber, index + 1),
@@ -121,9 +127,24 @@ function parseSession(raw: Record<string, unknown>): LogSession | null {
     totalSets: num(raw.totalSets),
     completedSets: num(raw.completedSets),
     volume: num(raw.volume),
+    rating: ratingOf(raw.rating),
     exercises: Array.isArray(raw.exercises)
       ? (raw.exercises as Record<string, unknown>[]).map(parseExercise)
       : null,
+  };
+}
+
+function parseRow(entry: Record<string, unknown>): LogRow | null {
+  const session = parseSession(entry);
+  if (!session) return null;
+  const user = (entry.user ?? {}) as Record<string, unknown>;
+  return {
+    ...session,
+    user: {
+      uid: str(user.uid) || session.uid,
+      username: strOrNull(user.username),
+      email: strOrNull(user.email),
+    },
   };
 }
 
@@ -137,22 +158,57 @@ export async function fetchWorkoutLogs(query: {
   const json = await adminApi.workoutLogs(query);
   const raw = Array.isArray(json.rows) ? (json.rows as Record<string, unknown>[]) : [];
 
-  const rows: LogRow[] = [];
-  for (const entry of raw) {
-    const session = parseSession(entry);
-    if (!session) continue;
-    const user = (entry.user ?? {}) as Record<string, unknown>;
-    rows.push({
-      ...session,
-      user: {
-        uid: str(user.uid) || session.uid,
-        username: strOrNull(user.username),
-        email: strOrNull(user.email),
-      },
-    });
-  }
-
+  const rows = raw.map(parseRow).filter((row): row is LogRow => row !== null);
   return { rows, nextCursor: strOrNull(json.nextCursor) };
+}
+
+export type StarKey = '1' | '2' | '3' | '4' | '5';
+
+export type RatingsSummary = {
+  /// Completed sessions in the window.
+  completed: number;
+  /// How many of them were rated.
+  rated: number;
+  /// Mean rating; null when nothing is rated.
+  average: number | null;
+  distribution: Record<StarKey, number>;
+  /// The window held more sessions than one request reads.
+  truncated: boolean;
+};
+
+export type RatingsPage = { summary: RatingsSummary; rows: LogRow[] };
+
+export const STAR_KEYS: StarKey[] = ['5', '4', '3', '2', '1'];
+
+/// Workout feedback: the summary for a window and the rated sessions in it.
+export async function fetchWorkoutRatings(query: {
+  from?: Date | null;
+  to?: Date | null;
+  stars?: number | null;
+  uid?: string | null;
+}): Promise<RatingsPage> {
+  const json = await adminApi.workoutRatings(query);
+  const raw = Array.isArray(json.rows) ? (json.rows as Record<string, unknown>[]) : [];
+  const rawSummary = (json.summary ?? {}) as Record<string, unknown>;
+  const rawDist = (rawSummary.distribution ?? {}) as Record<string, unknown>;
+  const average = rawSummary.average;
+
+  return {
+    rows: raw.map(parseRow).filter((row): row is LogRow => row !== null),
+    summary: {
+      completed: num(rawSummary.completed),
+      rated: num(rawSummary.rated),
+      average: typeof average === 'number' && Number.isFinite(average) ? average : null,
+      distribution: {
+        '1': num(rawDist['1']),
+        '2': num(rawDist['2']),
+        '3': num(rawDist['3']),
+        '4': num(rawDist['4']),
+        '5': num(rawDist['5']),
+      },
+      truncated: rawSummary.truncated === true,
+    },
+  };
 }
 
 export async function fetchUserWorkouts(

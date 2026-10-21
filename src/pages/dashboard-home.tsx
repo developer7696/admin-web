@@ -80,14 +80,14 @@ function Kpi({
     trend?.direction === 'up' ? TrendingUp : trend?.direction === 'down' ? TrendingDown : null;
 
   return (
-    <Card className="flex flex-col gap-2 p-3.5">
+    <Card className="flex flex-col gap-2 p-3 sm:p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="text-[10.5px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground sm:text-[11px]">
           {label}
         </p>
         <span className={cn('shrink-0 rounded-md p-1.5 [&_svg]:size-3.5', accent)}>{icon}</span>
       </div>
-      <p className="tabular text-2xl font-extrabold leading-none">{value}</p>
+      <p className="tabular text-xl font-extrabold leading-none sm:text-2xl">{value}</p>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
         {trend && (
           <span
@@ -223,7 +223,7 @@ function Overview({ data }: { data: DashboardOverview }) {
 
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
         <Kpi
           label="Total users"
           value={String(users.total)}

@@ -68,6 +68,7 @@ const logSession = (over: Partial<LogSession> = {}): LogSession => ({
   totalSets: 1,
   completedSets: 1,
   volume: 400,
+  rating: null,
   exercises: [logExercise()],
   ...over,
 });
