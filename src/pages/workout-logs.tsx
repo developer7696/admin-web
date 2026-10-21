@@ -19,6 +19,7 @@ import {
 import { fmtDuration, fmtDayMonthYearClock, initialsOf, timeAgo } from '@/lib/format';
 import { PageBar } from '@/components/common/page-header';
 import { StatCard } from '@/components/common/stat-card';
+import { StarRating } from '@/components/common/star-rating';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { SearchInput } from '@/components/common/search-input';
 import { Button } from '@/components/ui/button';
@@ -238,7 +239,7 @@ export function WorkoutLogsPage() {
     : `${visible.length} of ${rows.length} loaded${cursor ? ' (more available)' : ''}`;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4">
       <PageBar
         title="Workout Logs"
         status={status}
@@ -277,7 +278,7 @@ export function WorkoutLogsPage() {
         </Button>
       </PageBar>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Sessions loaded" value={totals.sessions} icon={<Dumbbell />} tone="primary" />
         <StatCard label="Distinct users" value={totals.people} icon={<Users />} />
         <StatCard label="Completed today" value={totals.today} icon={<Activity />} tone="success" />
@@ -339,7 +340,7 @@ export function WorkoutLogsPage() {
                     <button
                       type="button"
                       onClick={() => navigate(`/users/${row.uid}/workouts`)}
-                      className="truncate text-sm font-semibold hover:underline"
+                      className="block max-w-full truncate text-left text-sm font-semibold hover:underline"
                       title="Open this user's workout history"
                     >
                       {displayName(row)}
@@ -369,9 +370,26 @@ export function WorkoutLogsPage() {
                     )}
                   </div>
 
-                  <div className="shrink-0">
-                    <CompletionBadge session={row} />
+                  <div className="flex shrink-0 justify-end sm:w-[5.5rem]">
+                    {row.rating !== null ? (
+                      <StarRating rating={row.rating} />
+                    ) : (
+                      <span
+                        className="hidden text-[11px] text-muted-foreground sm:inline"
+                        title="The user did not rate this session"
+                      >
+                        not rated
+                      </span>
+                    )}
                   </div>
+
+                  {/* The feed never carries the exercises (see SessionDetail), so
+                      a badge here could only ever say "no detail". */}
+                  {row.exercises !== null && (
+                    <div className="shrink-0">
+                      <CompletionBadge session={row} />
+                    </div>
+                  )}
                 </div>
                 {open && <div className="border-t bg-muted/30">
                   <SessionDetail row={row} />

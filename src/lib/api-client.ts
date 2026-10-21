@@ -402,6 +402,22 @@ export const adminApi = {
     if (query.uid) qs.set('uid', query.uid);
     return send('GET', `/api/admin/workouts/logs?${qs.toString()}`, undefined, 45_000);
   },
+  workoutRatings: (query: {
+    from?: Date | null;
+    to?: Date | null;
+    stars?: number | null;
+    uid?: string | null;
+  }) => {
+    const qs = new URLSearchParams({
+      limit: '500',
+      utcOffsetMinutes: String(-new Date().getTimezoneOffset()),
+    });
+    if (query.from) qs.set('from', localDate(query.from));
+    if (query.to) qs.set('to', localDate(query.to));
+    if (query.stars) qs.set('stars', String(query.stars));
+    if (query.uid) qs.set('uid', query.uid);
+    return send('GET', `/api/admin/workouts/ratings?${qs.toString()}`, undefined, 45_000);
+  },
 
   /// One user's stats and session history. `full: false` omits the per-exercise
   /// sets, which is four fewer Firestore reads per session.
