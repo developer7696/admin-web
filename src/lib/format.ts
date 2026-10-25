@@ -88,6 +88,30 @@ export function rupeesFromPaise(paise: number | null | undefined, opts?: { decim
   })}`;
 }
 
+/// An amount in the smallest unit of `currency` (paise, cents), e.g.
+/// `formatMoney(1199, 'USD')` → "$11.99". INR keeps the panel's rupee style;
+/// a missing currency means INR, which is what every pre-USD amount is.
+export function formatMoney(
+  minor: number | null | undefined,
+  currency: string | null | undefined,
+  opts?: { decimals?: boolean },
+): string {
+  if (minor == null) return '—';
+  const code = (currency ?? 'INR').toUpperCase();
+  if (code === 'INR') return rupeesFromPaise(minor, opts);
+  const major = minor / 100;
+  try {
+    return major.toLocaleString('en-US', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: opts?.decimals === false ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    return `${code} ${major.toFixed(2)}`;
+  }
+}
+
 export function rupees(amount: number | null | undefined): string {
   if (amount == null) return '—';
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;

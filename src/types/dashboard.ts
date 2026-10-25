@@ -98,6 +98,12 @@ export interface SubscriptionCounts {
    * revenue.
    */
   mrrPaise: number;
+  /**
+   * The same run rate per currency, in each currency's minor unit (paise,
+   * cents). Never added together — there is no exchange rate. `mrrPaise` is
+   * the INR entry.
+   */
+  mrrByCurrency: Record<string, number>;
   byProvider: CountsByKey;
   byPlan: CountsByKey;
 }

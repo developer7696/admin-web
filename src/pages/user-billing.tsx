@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminApi, ApiException, type Json } from '@/lib/api-client';
-import { fmtDayMonthYearClock } from '@/lib/format';
+import { fmtDayMonthYearClock, formatMoney } from '@/lib/format';
 import { useCan } from '@/auth/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -50,9 +50,14 @@ import { cn } from '@/lib/utils';
 ///
 /// Data source: GET /api/admin/users/:uid/payment-history.
 
-function rupees(paise: unknown): string {
-  if (typeof paise !== 'number') return '-';
-  const r = paise / 100;
+/// An amount in the smallest unit of `currency` - paise for INR, cents for
+/// USD. Razorpay payments and history rows written since USD carry their
+/// currency; anything without one is INR.
+function money(minor: unknown, currency?: unknown): string {
+  if (typeof minor !== 'number') return '-';
+  const code = typeof currency === 'string' && currency.length > 0 ? currency.toUpperCase() : 'INR';
+  if (code !== 'INR') return formatMoney(minor, code);
+  const r = minor / 100;
   return `₹${Number.isInteger(r) ? r : r.toFixed(2)}`;
 }
 
@@ -194,6 +199,7 @@ function RefundDialog({
   const alreadyRefunded =
     typeof payment.amount_refunded === 'number' ? payment.amount_refunded : 0;
   const refundable = amount - alreadyRefunded;
+  const currency = typeof payment.currency === 'string' ? payment.currency.toUpperCase() : 'INR';
 
   const [full, setFull] = useState(true);
   const [amountText, setAmountText] = useState('');
@@ -239,7 +245,7 @@ function RefundDialog({
         </DialogHeader>
         <DialogBody>
           <p className="text-xs text-muted-foreground">Payment {paymentId}</p>
-          <p className="text-[13px] font-semibold">Refundable: {rupees(refundable)}</p>
+          <p className="text-[13px] font-semibold">Refundable: {money(refundable, currency)}</p>
 
           <div className="mt-3 flex gap-2">
             {[
@@ -264,7 +270,9 @@ function RefundDialog({
 
           {!full && (
             <div className="mt-3">
-              <Label htmlFor="refund-amount">Amount in ₹</Label>
+              <Label htmlFor="refund-amount">
+                Amount in {currency === 'INR' ? '₹' : currency}
+              </Label>
               <Input
                 id="refund-amount"
                 type="number"
@@ -462,7 +470,7 @@ export function UserBillingPage() {
                         )}
                         {typeof amount === 'number' && (
                           <span className="tabular text-xs text-slate-700 dark:text-slate-400">
-                            {rupees(amount)}
+                            {money(amount, row.currency)}
                           </span>
                         )}
                       </div>
@@ -529,15 +537,16 @@ export function UserBillingPage() {
                 const amount = typeof p.amount === 'number' ? p.amount : 0;
                 const refunded = typeof p.amount_refunded === 'number' ? p.amount_refunded : 0;
                 const refundStatus = String(p.refund_status ?? '');
+                const currency = p.currency;
 
                 // The refund answer, at a glance.
                 let refundLabel: string;
                 let refundClass: string;
                 if (refunded >= amount && amount > 0) {
-                  refundLabel = `REFUNDED ${rupees(refunded)}`;
+                  refundLabel = `REFUNDED ${money(refunded, currency)}`;
                   refundClass = 'text-emerald-600 bg-emerald-500/12';
                 } else if (refunded > 0) {
-                  refundLabel = `PARTIAL ${rupees(refunded)} of ${rupees(amount)}`;
+                  refundLabel = `PARTIAL ${money(refunded, currency)} of ${money(amount, currency)}`;
                   refundClass = 'text-orange-600 bg-orange-500/12';
                 } else if (status === 'captured') {
                   refundLabel = 'NO REFUND';
@@ -556,7 +565,7 @@ export function UserBillingPage() {
                   <div key={i} className="mb-2 rounded-[10px] border border-border bg-muted/40 p-2.5">
                     <div className="flex items-center gap-1.5">
                       <MethodIcon method={method} />
-                      <span className="tabular text-sm font-bold">{rupees(amount)}</span>
+                      <span className="tabular text-sm font-bold">{money(amount, currency)}</span>
                       {method && (
                         <span className="text-[11px] text-muted-foreground">
                           {method.toUpperCase()}

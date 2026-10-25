@@ -314,8 +314,20 @@ export const adminApi = {
   /// Upload the signed-in admin's own photo, the same route the app uses.
   uploadMyProfilePhoto: (file: Blob) => sendBytes('/api/profile/photo', file, file.type),
 
+  /// Payment switches: `{internationalPaymentsEnabled, usdPlansConfigured,
+  /// updatedAt, updatedBy}`. Needs `billing:read`.
+  paymentSettings: () => send('GET', '/api/admin/settings/payments'),
+
+  /// Turn international (USD) pricing for new Android purchases on or off.
+  /// Needs `billing:write`. 409 `usd_plans_not_configured` when turning on
+  /// before the USD Razorpay plans exist. Existing USD subscriptions keep
+  /// renewing in USD either way.
+  updatePaymentSettings: (body: { internationalPaymentsEnabled: boolean }) =>
+    send('PUT', '/api/admin/settings/payments', body),
+
   /// Refund one of the user's subscription payments. Full refund unless
-  /// `amountPaise` is given (partial, in paise: 500 = Rs 5).
+  /// `amountPaise` is given (partial, in the payment's minor unit: paise for an
+  /// INR payment, cents for a USD one).
   refundPayment: (args: { uid: string; paymentId: string; amountPaise?: number; reason?: string }) =>
     send('POST', `/api/admin/users/${args.uid}/refund`, {
       paymentId: args.paymentId,

@@ -198,6 +198,18 @@ function parseReport(json: Json): ConversionReport {
   };
 }
 
+
+/// `{INR: 12345, USD: 678}` from the API, or the INR total alone when absent.
+function byCurrency(raw: unknown, inrFallback: number): Record<string, number> {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return { INR: inrFallback };
+  const out: Record<string, number> = {};
+  for (const [currency, value] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) out[currency] = n;
+  }
+  return out;
+}
+
 export async function getConversionReport(): Promise<ConversionReport> {
   try {
     return parseReport(await adminApi.conversionReport());
@@ -231,6 +243,9 @@ export async function getPaymentEvidence(): Promise<PaymentEvidence> {
         grossPaise: Number(rz.grossPaise ?? 0),
         refunds: Number(rz.refunds ?? 0),
         refundPaise: Number(rz.refundPaise ?? 0),
+        // Older servers send no split; then the INR totals are everything.
+        grossByCurrency: byCurrency(rz.grossByCurrency, Number(rz.grossPaise ?? 0)),
+        refundByCurrency: byCurrency(rz.refundByCurrency, Number(rz.refundPaise ?? 0)),
         payerEmails: emails,
         funnel: parseFunnel(rz.funnel),
       },

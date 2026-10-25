@@ -16,6 +16,7 @@ import {
   fmtLongDateTime,
   fmtMonthDay,
   fmtMonthDayShort,
+  formatMoney,
   initialsOf,
   rupees,
   rupeesFromPaise,
@@ -171,5 +172,21 @@ describe('initialsOf', () => {
   it('answers ? when there is nothing to work with', () => {
     expect(initialsOf('', '')).toBe('?');
     expect(initialsOf('   ')).toBe('?');
+  });
+});
+
+describe('formatMoney', () => {
+  it('keeps the rupee style for INR and for a missing currency', () => {
+    expect(formatMoney(99900, 'INR')).toBe('₹999');
+    expect(formatMoney(99900, null)).toBe('₹999');
+  });
+
+  it('formats USD cents as dollars', () => {
+    expect(formatMoney(1199, 'USD')).toBe('$11.99');
+    expect(formatMoney(1099, 'EUR')).toBe('€10.99');
+  });
+
+  it('shows a dash for no amount', () => {
+    expect(formatMoney(null, 'USD')).toBe('—');
   });
 });
