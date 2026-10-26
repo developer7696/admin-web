@@ -37,7 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useConversionReport, usePaymentEvidence } from '@/hooks/use-conversion';
 import { downloadCsv } from '@/lib/csv';
 import { planKeyLabel } from '@/lib/constants';
-import { compactNumber, fmtDateShort, fmtDateTime, rupeesFromPaise } from '@/lib/format';
+import { compactNumber, fmtDateShort, fmtDateTime, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   funnelFromUsers,
@@ -49,6 +49,15 @@ import type {
   CountsByKey,
   TrialKind,
 } from '@/types/conversion';
+
+/// "₹12,340 · $56.70" - one figure per currency, never added together.
+const moneyByCurrency = (amounts: Record<string, number>): string => {
+  const parts = Object.entries(amounts)
+    .filter(([currency, minor]) => currency === 'INR' || minor > 0)
+    .sort(([a], [b]) => (a === 'INR' ? -1 : b === 'INR' ? 1 : a.localeCompare(b)))
+    .map(([currency, minor]) => formatMoney(minor, currency));
+  return parts.length > 0 ? parts.join(' · ') : formatMoney(0, 'INR');
+};
 
 /// Conversion report — trial vs paid analysis of the whole `users` collection,
 /// plus the raw user list (email, plan, segment) and Razorpay/Apple evidence.
@@ -520,13 +529,13 @@ export function ConversionPage() {
                   <StatCard
                     label="Captured payments"
                     value={compactNumber(paymentsQ.data.razorpay.capturedPayments)}
-                    hint={rupeesFromPaise(paymentsQ.data.razorpay.grossPaise)}
+                    hint={moneyByCurrency(paymentsQ.data.razorpay.grossByCurrency)}
                     tone="success"
                   />
                   <StatCard
                     label="Refunds"
                     value={compactNumber(paymentsQ.data.razorpay.refunds)}
-                    hint={rupeesFromPaise(paymentsQ.data.razorpay.refundPaise)}
+                    hint={moneyByCurrency(paymentsQ.data.razorpay.refundByCurrency)}
                     tone="warning"
                   />
                   <StatCard

@@ -315,7 +315,8 @@ export const adminApi = {
   uploadMyProfilePhoto: (file: Blob) => sendBytes('/api/profile/photo', file, file.type),
 
   /// Refund one of the user's subscription payments. Full refund unless
-  /// `amountPaise` is given (partial, in paise: 500 = Rs 5).
+  /// `amountPaise` is given (partial, in the payment's minor unit: paise for an
+  /// INR payment, cents for a USD one).
   refundPayment: (args: { uid: string; paymentId: string; amountPaise?: number; reason?: string }) =>
     send('POST', `/api/admin/users/${args.uid}/refund`, {
       paymentId: args.paymentId,
