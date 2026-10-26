@@ -108,6 +108,8 @@ function parseSubscriptions(raw: unknown): SubscriptionCounts {
     expiringSoon: num(s.expiringSoon),
     pendingCheckout: num(s.pendingCheckout),
     mrrPaise: num(s.mrrPaise),
+    // Older servers send no per-currency split; then everything is INR.
+    mrrByCurrency: s.mrrByCurrency == null ? { INR: num(s.mrrPaise) } : counts(s.mrrByCurrency),
     byProvider: counts(s.byProvider),
     byPlan: counts(s.byPlan),
   };

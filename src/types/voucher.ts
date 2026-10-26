@@ -24,6 +24,11 @@ export type VoucherModel = {
 
   // Discount-only.
   razorpayOfferId: string | null;
+  /// Razorpay Offer for USD (international) checkouts. Without it the code is
+  /// unavailable to users priced in USD.
+  razorpayOfferIdUsd: string | null;
+  /// The same for EUR (eurozone) checkouts.
+  razorpayOfferIdEur: string | null;
 
   // Discount and trial (iOS).
   appleOfferCodes: Record<string, string>;
@@ -95,6 +100,8 @@ export function parseVoucher(json: Record<string, unknown>): VoucherModel {
     grantTier: strOrNull(json.grantTier),
     grantDays: intOrNull(json.grantDays),
     razorpayOfferId: strOrNull(json.razorpayOfferId),
+    razorpayOfferIdUsd: strOrNull(json.razorpayOfferIdUsd),
+    razorpayOfferIdEur: strOrNull(json.razorpayOfferIdEur),
     appleOfferCodes,
     appleOfferRefNames: planMap(json.appleOfferRefNames),
     previewDiscountType: strOrNull(json.previewDiscountType),

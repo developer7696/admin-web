@@ -162,6 +162,9 @@ export interface PaymentEvidence {
     grossPaise: number;
     refunds: number;
     refundPaise: number;
+    /** Minor units per currency (paise, cents). Never summed across currencies. */
+    grossByCurrency: Record<string, number>;
+    refundByCurrency: Record<string, number>;
     /** Distinct email addresses that ever had a payment captured. */
     payerEmails: string[];
     funnel: FunnelStage[];
