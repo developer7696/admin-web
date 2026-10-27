@@ -28,6 +28,9 @@ const ConversionPage = lazy(() =>
   import('@/pages/conversion').then((m) => ({ default: m.ConversionPage })),
 );
 const UsersPage = lazy(() => import('@/pages/users').then((m) => ({ default: m.UsersPage })));
+const PricingPage = lazy(() =>
+  import('@/pages/pricing').then((m) => ({ default: m.PricingPage })),
+);
 const PaymentsPage = lazy(() =>
   import('@/pages/payments').then((m) => ({ default: m.PaymentsPage })),
 );
@@ -157,6 +160,7 @@ export function App() {
               the same sessions, so the same permission. */}
           <Route path="/workout-feedback" element={guarded('users:read', <WorkoutFeedbackPage />)} />
           <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
+          <Route path="/pricing" element={guarded('billing:read', <PricingPage />)} />
           <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
           <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />
           <Route path="/recipes" element={guarded('recipes:read', <RecipesPage />)} />
