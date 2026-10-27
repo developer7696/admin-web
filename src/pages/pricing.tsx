@@ -39,6 +39,10 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/common/states
  * because it is not what "edit a price" usually means.
  */
 
+/// Basic is discontinued: kept for the subscribers on it, never sold, so a
+/// region does not need Basic plans to go live.
+const isBasic = (key: PlanKey): boolean => key.startsWith('basic_');
+
 const errorText = (e: unknown, fallback: string): string =>
   e instanceof ApiException ? e.message : fallback;
 
@@ -119,10 +123,19 @@ function RegionCard({
           const price = region.prices[key];
           return (
             <div key={key} className="flex items-center justify-between gap-3 border-b border-dashed py-1">
-              <dt className="text-muted-foreground">{planKeyLabel(key)}</dt>
-              <dd className={cn('font-medium tabular-nums', !price?.planId && 'text-amber-600')}>
+              <dt className="text-muted-foreground">
+                {planKeyLabel(key)}
+                {isBasic(key) && <span className="text-[11px]"> (discontinued)</span>}
+              </dt>
+              <dd
+                className={cn(
+                  'font-medium tabular-nums',
+                  !price?.planId && !isBasic(key) && 'text-amber-600',
+                  isBasic(key) && 'text-muted-foreground',
+                )}
+              >
                 {price ? formatMoney(price.amountMinor, region.currency, { decimals: true }) : '—'}
-                {price && !price.planId && ' · no plan'}
+                {price && !price.planId && !isBasic(key) && ' · no plan'}
               </dd>
             </div>
           );
@@ -198,12 +211,13 @@ function PricesDialog({ region, onClose }: { region: PricingRegion; onClose: () 
 
   const parsed = PLAN_KEYS.map((key) => ({ key, minor: toMinor(values[key]) }));
   const allValid = parsed.every((p) => p.minor !== undefined);
-  // A price that is unchanged but has no Razorpay plan is still sent: saving
-  // creates the missing plan.
+  // An unchanged Pro price with no Razorpay plan is still sent: saving creates
+  // the missing plan. Basic is never sold, so its missing plans stay missing.
   const changes = parsed.filter(
     (p) =>
       p.minor !== undefined &&
-      (p.minor !== region.prices[p.key]?.amountMinor || !region.prices[p.key]?.planId),
+      (p.minor !== region.prices[p.key]?.amountMinor ||
+        (!region.prices[p.key]?.planId && !isBasic(p.key))),
   );
 
   async function submit() {
