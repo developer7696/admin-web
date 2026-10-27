@@ -32,6 +32,8 @@ export const PERMISSIONS = [
   'analytics:read',
   'features:read',
   'features:write',
+  'marketing:read',
+  'marketing:write',
   'iam:read',
   'iam:write',
 ] as const;
@@ -146,6 +148,7 @@ export const PERMISSION_GROUPS: readonly {
   { resource: 'billing', label: 'Billing & payments', permissions: ['billing:read', 'billing:write'] },
   { resource: 'analytics', label: 'Dashboard & conversion', permissions: ['analytics:read'] },
   { resource: 'features', label: 'Feature flags', permissions: ['features:read', 'features:write'] },
+  { resource: 'marketing', label: 'Marketing emails', permissions: ['marketing:read', 'marketing:write'] },
   { resource: 'iam', label: 'Access & roles', permissions: ['iam:read', 'iam:write'] },
 ];
 

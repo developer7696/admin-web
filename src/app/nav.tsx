@@ -10,6 +10,8 @@ import {
   Headset,
   LayoutDashboard,
   Link2,
+  Mail,
+  Send,
   ShieldCheck,
   MessageSquareHeart,
   Tag,
@@ -49,6 +51,13 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Payments', icon: CreditCard, path: '/payments', permission: 'billing:read' },
       { label: 'Pricing', icon: Globe, path: '/pricing', permission: 'billing:read' },
       { label: 'Apple Links', icon: Link2, path: '/apple-links', permission: 'billing:read' },
+    ],
+  },
+  {
+    label: 'Marketing',
+    entries: [
+      { label: 'Contacts', icon: Mail, path: '/marketing/contacts', permission: 'marketing:read' },
+      { label: 'Campaigns', icon: Send, path: '/marketing/campaigns', permission: 'marketing:read' },
     ],
   },
   {
