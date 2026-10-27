@@ -379,12 +379,16 @@ const fmtWhen = (iso: string): string =>
 function SendDialog({
   campaign,
   subscribed,
+  transport,
   onClose,
 }: {
   campaign: Campaign;
   subscribed: number;
+  transport: 'smtp' | 'resend' | null;
   onClose: () => void;
 }) {
+  // Gmail sends ~2,000 a day, Resend's free plan 100: the cap is only a sensible default for Resend.
+  const dayCap = transport === 'smtp' ? 2000 : 100;
   const isDraft = campaign.status === 'draft';
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [who, setWho] = useState<'all' | 'chosen'>(campaign.audienceIds ? 'chosen' : 'all');
@@ -394,8 +398,10 @@ function SendDialog({
   const recipients = contactIds ? contactIds.length : subscribed;
   const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60_000)));
   // Resend's free plan stops at 100 a day; most sends today want the cap on.
-  const [limitOn, setLimitOn] = useState(campaign.dailyLimit !== null || (campaign.audienceIds?.length ?? subscribed) > 100);
-  const [limit, setLimit] = useState(String(campaign.dailyLimit ?? 100));
+  const [limitOn, setLimitOn] = useState(
+    campaign.dailyLimit !== null || (campaign.audienceIds?.length ?? subscribed) > dayCap,
+  );
+  const [limit, setLimit] = useState(String(campaign.dailyLimit ?? dayCap));
   const [error, setError] = useState<string | null>(null);
 
   const dailyLimit = limitOn ? Number(limit) : null;
@@ -492,8 +498,8 @@ function SendDialog({
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Resend&apos;s free plan sends 100 a day. With a limit, the send pauses and continues by itself the next
-              day.
+              {transport === 'smtp' ? 'Gmail sends about 2,000 a day.' : "Resend's free plan sends 100 a day."} With a
+              limit, the send pauses and continues by itself the next day.
             </p>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -671,6 +677,13 @@ export function MarketingCampaignsPage() {
         </PageBar>
 
         <MarketingSetupBanner missing={summary.data?.missingSetup ?? []} />
+        {summary.data?.transport && (
+          <p className="text-xs text-muted-foreground">
+            Sending through <strong>{summary.data.transport === 'smtp' ? 'Gmail' : 'Resend'}</strong>
+            {summary.data.sender ? ` as ${summary.data.sender}` : ''} — about{' '}
+            {summary.data.transport === 'smtp' ? '2,000' : '100'} emails a day.
+          </p>
+        )}
 
         {query.isLoading && <LoadingState label="Loading campaigns…" />}
         {query.isError && (
@@ -732,6 +745,7 @@ export function MarketingCampaignsPage() {
         <SendDialog
           campaign={sending}
           subscribed={subscribed}
+          transport={summary.data?.transport ?? null}
           onClose={() => {
             setSending(null);
           }}
