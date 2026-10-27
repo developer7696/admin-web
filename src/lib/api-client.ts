@@ -813,12 +813,13 @@ export const adminApi = {
     send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/test`, { to, name }),
 
   /// Start - or resume - sending to every subscribed contact. Returns at once.
-  sendMarketingCampaign: (id: string, dailyLimit: number | null) =>
-    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/send`, { dailyLimit }),
+  /// [contactIds] null = every subscribed contact.
+  sendMarketingCampaign: (id: string, dailyLimit: number | null, contactIds: string[] | null) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/send`, { dailyLimit, contactIds }),
 
   /// Send at [at] (ISO with offset). The server's scheduler starts it within a minute.
-  scheduleMarketingCampaign: (id: string, at: string, dailyLimit: number | null) =>
-    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`, { at, dailyLimit }),
+  scheduleMarketingCampaign: (id: string, at: string, dailyLimit: number | null, contactIds: string[] | null) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`, { at, dailyLimit, contactIds }),
 
   /// Back to a draft.
   unscheduleMarketingCampaign: (id: string) =>
