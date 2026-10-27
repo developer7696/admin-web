@@ -45,6 +45,10 @@ export type MarketingSummary = {
   contacts: { total: number; subscribed: number; unsubscribed: number };
   /// Server settings still missing before anything can be sent.
   missingSetup: string[];
+  /// Which service sends: Gmail SMTP (~2,000/day) or Resend (100/day free).
+  transport: 'smtp' | 'resend' | null;
+  /// The address mail goes out from.
+  sender: string | null;
 };
 
 export type ImportResult = {

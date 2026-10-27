@@ -58,6 +58,8 @@ export const marketingService = {
         missingSetup: Array.isArray(json.missingSetup)
           ? json.missingSetup.filter((m): m is string => typeof m === 'string')
           : [],
+        transport: json.transport === 'smtp' || json.transport === 'resend' ? json.transport : null,
+        sender: typeof json.sender === 'string' ? json.sender : null,
       };
     }),
 
