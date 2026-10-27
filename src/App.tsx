@@ -28,6 +28,12 @@ const ConversionPage = lazy(() =>
   import('@/pages/conversion').then((m) => ({ default: m.ConversionPage })),
 );
 const UsersPage = lazy(() => import('@/pages/users').then((m) => ({ default: m.UsersPage })));
+const MarketingContactsPage = lazy(() =>
+  import('@/pages/marketing-contacts').then((m) => ({ default: m.MarketingContactsPage })),
+);
+const MarketingCampaignsPage = lazy(() =>
+  import('@/pages/marketing-campaigns').then((m) => ({ default: m.MarketingCampaignsPage })),
+);
 const PricingPage = lazy(() =>
   import('@/pages/pricing').then((m) => ({ default: m.PricingPage })),
 );
@@ -161,6 +167,8 @@ export function App() {
           <Route path="/workout-feedback" element={guarded('users:read', <WorkoutFeedbackPage />)} />
           <Route path="/payments" element={guarded('billing:read', <PaymentsPage />)} />
           <Route path="/pricing" element={guarded('billing:read', <PricingPage />)} />
+          <Route path="/marketing/contacts" element={guarded('marketing:read', <MarketingContactsPage />)} />
+          <Route path="/marketing/campaigns" element={guarded('marketing:read', <MarketingCampaignsPage />)} />
           <Route path="/apple-links" element={guarded('billing:read', <AppleLinksPage />)} />
           <Route path="/complaints" element={guarded('complaints:read', <ComplaintsPage />)} />
           <Route path="/recipes" element={guarded('recipes:read', <RecipesPage />)} />

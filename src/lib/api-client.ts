@@ -768,6 +768,54 @@ export const adminApi = {
   deletePricingRegion: (currency: string) =>
     send('DELETE', `/api/admin/pricing/regions/${encodeURIComponent(currency)}`),
 
+  // ── Marketing emails ──────────────────────────────────────────────────────
+  // A contact list uploaded from a spreadsheet, and campaigns sent to it
+  // through Resend. Reading needs `marketing:read`; every change and every
+  // send needs `marketing:write`.
+
+  /// Contact counts, and which server settings are still missing.
+  marketingSummary: () => send('GET', '/api/admin/marketing/summary'),
+
+  /// Contacts by email. `search` is an email prefix; page with `after`.
+  marketingContacts: (args: { search?: string; after?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (args.search) qs.set('search', args.search);
+    if (args.after) qs.set('after', args.after);
+    if (args.limit) qs.set('limit', String(args.limit));
+    return send('GET', `/api/admin/marketing/contacts?${qs}`);
+  },
+
+  /// Up to 2,000 rows per call; the page splits bigger sheets.
+  importMarketingContacts: (contacts: Json[]) =>
+    send('POST', '/api/admin/marketing/contacts/import', { contacts }, 60_000),
+
+  deleteMarketingContact: (id: string) =>
+    send('DELETE', `/api/admin/marketing/contacts/${encodeURIComponent(id)}`),
+
+  marketingCampaigns: () => send('GET', '/api/admin/marketing/campaigns'),
+  marketingCampaign: (id: string) => send('GET', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`),
+  createMarketingCampaign: (body: Json) => send('POST', '/api/admin/marketing/campaigns', body),
+  updateMarketingCampaign: (id: string, body: Json) =>
+    send('PATCH', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`, body),
+  deleteMarketingCampaign: (id: string) =>
+    send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`),
+
+  /// Banner image: permit, PUT to Azure, confirm - like article images.
+  marketingImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image/upload-url`, { extension }),
+  marketingImageConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image/confirm`, { path }),
+  removeMarketingImage: (id: string) =>
+    send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image`),
+
+  /// Email the campaign to one address, subject prefixed "[Test]".
+  testMarketingCampaign: (id: string, to: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/test`, { to }),
+
+  /// Start - or resume - sending to every subscribed contact. Returns at once.
+  sendMarketingCampaign: (id: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/send`),
+
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
   // every write needs `iam:write`, which only Super Admin holds.
