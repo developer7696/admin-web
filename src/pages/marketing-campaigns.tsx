@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
 import { useAuth, useCan } from '@/auth/auth-context';
 import { fmtDateShort } from '@/lib/format';
 import { useCampaigns, useMarketingMutation, useMarketingSummary } from '@/hooks/use-marketing';
-import { marketingService } from '@/services/marketing-service';
+import { marketingService, type CampaignDraft } from '@/services/marketing-service';
 import { isStalled, type Campaign } from '@/types/marketing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -51,18 +51,49 @@ function StatusBadge({ campaign }: { campaign: Campaign }) {
 
 // ── Editor ──────────────────────────────────────────────────────────────────
 
+/// New campaigns send as Srinidhi, like the hand-written invites; editable per campaign.
+const DEFAULT_SENDER = { fromName: 'Srinidhi RK', fromEmail: 'srinidhi@aarambh.app' };
+const isHttpUrl = (v: string) => /^https?:\/\/\S+$/.test(v.trim());
+
 function EditorDialog({ campaign, onClose }: { campaign: Campaign | null; onClose: () => void }) {
   const [subject, setSubject] = useState(campaign?.subject ?? '');
   const [body, setBody] = useState(campaign?.body ?? '');
+  const [fromName, setFromName] = useState(campaign ? (campaign.fromName ?? '') : DEFAULT_SENDER.fromName);
+  const [fromEmail, setFromEmail] = useState(campaign ? (campaign.fromEmail ?? '') : DEFAULT_SENDER.fromEmail);
+  const [imageLink, setImageLink] = useState(campaign?.imageLink ?? '');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const save = useMarketingMutation((draft: { subject: string; body: string }) =>
-    campaign ? marketingService.update(campaign.id, draft) : marketingService.create(draft),
+  const preview = useMemo(() => (imageFile ? URL.createObjectURL(imageFile) : null), [imageFile]);
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview);
+    },
+    [preview],
   );
+
+  const save = useMarketingMutation(async (draft: CampaignDraft) => {
+    let saved = campaign ? await marketingService.update(campaign.id, draft) : await marketingService.create(draft);
+    if (imageFile) saved = await marketingService.uploadImage(saved.id, imageFile);
+    else if (removeImage && saved.imageUrl) saved = await marketingService.removeImage(saved.id);
+    return saved;
+  });
+
+  const emailOk = fromEmail.trim() === '' || /^[^\s@]+@aarambh\.app$/i.test(fromEmail.trim());
+  const linkOk = imageLink.trim() === '' || isHttpUrl(imageLink);
+  const canSave = subject.trim() !== '' && body.trim() !== '' && emailOk && linkOk;
+  const shownImage = preview ?? (removeImage ? null : (campaign?.imageUrl ?? null));
 
   async function submit() {
     setError(null);
     try {
-      await save.mutateAsync({ subject: subject.trim(), body: body.trim() });
+      await save.mutateAsync({
+        subject: subject.trim(),
+        body: body.trim(),
+        imageLink: imageLink.trim(),
+        fromName: fromName.trim(),
+        fromEmail: fromEmail.trim(),
+      });
       toast.success('Draft saved');
       onClose();
     } catch (e) {
@@ -72,40 +103,110 @@ function EditorDialog({ campaign, onClose }: { campaign: Campaign | null; onClos
 
   return (
     <Dialog open onOpenChange={(open) => !save.isPending && !open && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>{campaign ? 'Edit campaign' : 'New campaign'}</DialogTitle>
           <DialogDescription>
-            Plain text. A blank line starts a new paragraph, links are clickable, and{' '}
-            <code>{'{name}'}</code> becomes each person&apos;s first name (&quot;there&quot; when unknown). An
-            unsubscribe link is added at the bottom automatically.
+            Looks like an email typed in Gmail. An unsubscribe line is added at the bottom automatically.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="campaign-from-name">Sender name</Label>
+              <Input
+                id="campaign-from-name"
+                value={fromName}
+                maxLength={80}
+                placeholder="Team Aarambh"
+                onChange={(e) => {
+                  setFromName(e.target.value);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="campaign-from-email">Sender email (replies go here)</Label>
+              <Input
+                id="campaign-from-email"
+                type="email"
+                value={fromEmail}
+                placeholder="hello@aarambh.app"
+                onChange={(e) => {
+                  setFromEmail(e.target.value);
+                }}
+                aria-invalid={!emailOk}
+              />
+              {!emailOk && <p className="text-[11px] text-red-600">Must be an @aarambh.app address.</p>}
+            </div>
+          </div>
+
           <div className="space-y-1">
             <Label htmlFor="campaign-subject">Subject</Label>
             <Input
               id="campaign-subject"
               value={subject}
               maxLength={200}
-              placeholder="Your 7-day plan is ready, {name}"
+              placeholder="You're invited: Move and Train with Aarambh | Oct 31, Hyderabad"
               onChange={(e) => {
                 setSubject(e.target.value);
               }}
             />
           </div>
+
+          <div className="space-y-2">
+            <Label>Banner image (optional)</Label>
+            {shownImage && <img src={shownImage} alt="" className="max-h-48 rounded border object-contain" />}
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                accept="image/jpeg,image/png,image/gif"
+                className="max-w-xs"
+                onChange={(e) => {
+                  setImageFile(e.target.files?.[0] ?? null);
+                  setRemoveImage(false);
+                }}
+              />
+              {(shownImage ?? null) !== null && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setImageFile(null);
+                    setRemoveImage(true);
+                  }}
+                >
+                  <Trash2 /> Remove
+                </Button>
+              )}
+            </div>
+            <Input
+              value={imageLink}
+              placeholder="Link when the banner is clicked (optional), e.g. the booking page"
+              onChange={(e) => {
+                setImageLink(e.target.value);
+              }}
+              aria-invalid={!linkOk}
+            />
+            {!linkOk && <p className="text-[11px] text-red-600">Use a full link starting with https://</p>}
+            <p className="text-[11px] text-muted-foreground">JPG, PNG or GIF up to 5 MB. About 1200–1600 px wide looks sharp.</p>
+          </div>
+
           <div className="space-y-1">
             <Label htmlFor="campaign-body">Message</Label>
             <Textarea
               id="campaign-body"
               value={body}
-              rows={14}
+              rows={16}
               maxLength={20000}
-              placeholder={'Hi {name},\n\n…\n\nTeam Aarambh'}
+              placeholder={'Hi {First Name},\n\n…\n\n**Team Aarambh**'}
               onChange={(e) => {
                 setBody(e.target.value);
               }}
             />
+            <p className="text-[11px] text-muted-foreground">
+              <code>{'{First Name}'}</code> → their first name · <code>**bold**</code> → <strong>bold</strong> ·{' '}
+              <code>[Maison de Build](https://maps…)</code> → a link · a blank line starts a new paragraph.
+            </p>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </DialogBody>
@@ -113,10 +214,7 @@ function EditorDialog({ campaign, onClose }: { campaign: Campaign | null; onClos
           <Button variant="outline" disabled={save.isPending} onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            disabled={save.isPending || subject.trim() === '' || body.trim() === ''}
-            onClick={() => void submit()}
-          >
+          <Button disabled={save.isPending || !canSave} onClick={() => void submit()}>
             {save.isPending && <Loader2 className="animate-spin" />} Save draft
           </Button>
         </DialogFooter>
@@ -209,6 +307,10 @@ function CampaignCard({
             <p className="font-semibold">{campaign.subject || '(no subject)'}</p>
             <StatusBadge campaign={campaign} />
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            From {campaign.fromEmail ? `${campaign.fromName ?? ''} <${campaign.fromEmail}>` : 'hello@aarambh.app'}
+          </p>
+          {campaign.imageUrl && <img src={campaign.imageUrl} alt="" className="max-h-24 rounded border object-contain" />}
           <p className="line-clamp-2 whitespace-pre-line text-xs text-muted-foreground">{campaign.body}</p>
           <p className="text-[11px] text-muted-foreground">
             {campaign.createdAt && `Created ${fmtDateShort(new Date(campaign.createdAt))}`}

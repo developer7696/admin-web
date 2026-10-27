@@ -1,4 +1,5 @@
 import { adminApi, ApiException, type Json } from '@/lib/api-client';
+import { putToAzure } from './exercise-catalog-repository';
 import type { SheetContact } from '@/lib/contact-sheet';
 import {
   parseCampaign,
@@ -34,6 +35,15 @@ const campaignOf = (json: Json): Campaign =>
   parseCampaign((json.campaign ?? {}) as Record<string, unknown>);
 
 const n = (v: unknown): number => (typeof v === 'number' ? v : 0);
+
+/// What the editor saves. Empty strings clear a field on the server.
+export type CampaignDraft = {
+  subject: string;
+  body: string;
+  imageLink: string;
+  fromName: string;
+  fromEmail: string;
+};
 
 /// Rows per import request - the server's limit.
 const IMPORT_CHUNK = 2000;
@@ -87,11 +97,26 @@ export const marketingService = {
 
   campaign: (id: string): Promise<Campaign> => guard(async () => campaignOf(await adminApi.marketingCampaign(id))),
 
-  create: (draft: { subject: string; body: string }): Promise<Campaign> =>
+  create: (draft: CampaignDraft): Promise<Campaign> =>
     guard(async () => campaignOf(await adminApi.createMarketingCampaign(draft))),
 
-  update: (id: string, draft: { subject: string; body: string }): Promise<Campaign> =>
+  update: (id: string, draft: CampaignDraft): Promise<Campaign> =>
     guard(async () => campaignOf(await adminApi.updateMarketingCampaign(id, draft))),
+
+  /// Upload [file] as the campaign's banner, replacing any earlier one.
+  uploadImage: (id: string, file: File): Promise<Campaign> =>
+    guard(async () => {
+      const extension = (file.name.split('.').pop() ?? '').toLowerCase();
+      const ticket = await adminApi.marketingImageUploadUrl(id, extension);
+      const uploadUrl = String(ticket.uploadUrl ?? '');
+      const path = String(ticket.path ?? '');
+      if (!uploadUrl || !path) throw new ApiException(0, 'upload_ticket', 'The server did not return an upload URL.');
+      await putToAzure(uploadUrl, String(ticket.contentType ?? file.type), file);
+      return campaignOf(await adminApi.marketingImageConfirm(id, path));
+    }),
+
+  removeImage: (id: string): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.removeMarketingImage(id))),
 
   remove: (id: string): Promise<void> =>
     guard(async () => {
