@@ -744,6 +744,30 @@ export const adminApi = {
   setFeatureFlag: (key: string, enabled: boolean) =>
     send('PUT', `/api/admin/features/${encodeURIComponent(key)}`, { enabled }),
 
+  // ── Pricing regions ───────────────────────────────────────────────────────
+  // Who pays what: one region per currency, with its countries and five plan
+  // prices. Reading needs `billing:read`; every change needs `billing:write`.
+  // Every write answers with all regions after the change.
+
+  /// Every region, freshly read.
+  pricingRegions: () => send('GET', '/api/admin/pricing'),
+
+  /// Add a region. The server creates its five Razorpay plans first, so this
+  /// can take several seconds.
+  createPricingRegion: (body: Json) => send('POST', '/api/admin/pricing/regions', body, 60_000),
+
+  /// Rename a region, change its countries, or make it the default.
+  updatePricingRegion: (currency: string, body: Json) =>
+    send('PATCH', `/api/admin/pricing/regions/${encodeURIComponent(currency)}`, body),
+
+  /// Change plan prices. Each changed price becomes a new Razorpay plan.
+  setPricingRegionPrices: (currency: string, prices: Json) =>
+    send('PUT', `/api/admin/pricing/regions/${encodeURIComponent(currency)}/prices`, { prices }, 60_000),
+
+  /// Remove a region; its countries fall to the default region.
+  deletePricingRegion: (currency: string) =>
+    send('DELETE', `/api/admin/pricing/regions/${encodeURIComponent(currency)}`),
+
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
   // every write needs `iam:write`, which only Super Admin holds.
