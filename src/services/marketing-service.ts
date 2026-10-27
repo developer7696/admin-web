@@ -7,6 +7,7 @@ import {
   type Campaign,
   type Contact,
   type ImportResult,
+  type MailTransport,
   type MarketingSummary,
 } from '@/types/marketing';
 
@@ -45,6 +46,8 @@ export type CampaignDraft = {
   fromEmail: string;
 };
 
+const isTransport = (t: unknown): t is MailTransport => t === 'smtp' || t === 'resend' || t === 'brevo';
+
 /// Rows per import request - the server's limit.
 const IMPORT_CHUNK = 2000;
 
@@ -58,7 +61,9 @@ export const marketingService = {
         missingSetup: Array.isArray(json.missingSetup)
           ? json.missingSetup.filter((m): m is string => typeof m === 'string')
           : [],
-        transport: json.transport === 'smtp' || json.transport === 'resend' ? json.transport : null,
+        transport: isTransport(json.transport) ? json.transport : null,
+        transports: Array.isArray(json.transports) ? json.transports.filter(isTransport) : [],
+        dailyCapacity: n(json.dailyCapacity),
         sender: typeof json.sender === 'string' ? json.sender : null,
       };
     }),

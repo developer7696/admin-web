@@ -6,7 +6,7 @@ import { useAuth, useCan } from '@/auth/auth-context';
 import { fmtDateShort } from '@/lib/format';
 import { useCampaigns, useMarketingMutation, useMarketingSummary, useSubscribedContacts } from '@/hooks/use-marketing';
 import { marketingService, type CampaignDraft } from '@/services/marketing-service';
-import { isStalled, type Campaign } from '@/types/marketing';
+import { isStalled, TRANSPORT_NAMES, type Campaign, type MarketingSummary } from '@/types/marketing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -376,19 +376,25 @@ const toLocalInput = (d: Date): string => {
 const fmtWhen = (iso: string): string =>
   new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
+/** "Resend + Brevo": the services in the order they send. */
+const serviceLine = (summary: MarketingSummary | undefined): string => {
+  const list = summary?.transports.length ? summary.transports : summary?.transport ? [summary.transport] : [];
+  return list.map((t) => TRANSPORT_NAMES[t]).join(' + ') || 'the mail service';
+};
+
 function SendDialog({
   campaign,
   subscribed,
-  transport,
+  summary,
   onClose,
 }: {
   campaign: Campaign;
   subscribed: number;
-  transport: 'smtp' | 'resend' | null;
+  summary: MarketingSummary | undefined;
   onClose: () => void;
 }) {
-  // Gmail sends ~2,000 a day, Resend's free plan 100: the cap is only a sensible default for Resend.
-  const dayCap = transport === 'smtp' ? 2000 : 100;
+  // What the mail services allow in a day together (Gmail ~2,000, Resend 100, Brevo 300).
+  const dayCap = summary?.dailyCapacity || 100;
   const isDraft = campaign.status === 'draft';
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [who, setWho] = useState<'all' | 'chosen'>(campaign.audienceIds ? 'chosen' : 'all');
@@ -397,7 +403,7 @@ function SendDialog({
   const contactIds = !isDraft ? campaign.audienceIds : who === 'chosen' ? [...chosen] : null;
   const recipients = contactIds ? contactIds.length : subscribed;
   const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60_000)));
-  // Resend's free plan stops at 100 a day; most sends today want the cap on.
+  // A list longer than a day's allowance wants the cap on.
   const [limitOn, setLimitOn] = useState(
     campaign.dailyLimit !== null || (campaign.audienceIds?.length ?? subscribed) > dayCap,
   );
@@ -498,7 +504,7 @@ function SendDialog({
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-              {transport === 'smtp' ? 'Gmail sends about 2,000 a day.' : "Resend's free plan sends 100 a day."} With a
+              {serviceLine(summary)} sends about {dayCap.toLocaleString()} a day. With a
               limit, the send pauses and continues by itself the next day.
             </p>
           </div>
@@ -679,9 +685,10 @@ export function MarketingCampaignsPage() {
         <MarketingSetupBanner missing={summary.data?.missingSetup ?? []} />
         {summary.data?.transport && (
           <p className="text-xs text-muted-foreground">
-            Sending through <strong>{summary.data.transport === 'smtp' ? 'Gmail' : 'Resend'}</strong>
+            Sending through <strong>{serviceLine(summary.data)}</strong>
             {summary.data.sender ? ` as ${summary.data.sender}` : ''} — about{' '}
-            {summary.data.transport === 'smtp' ? '2,000' : '100'} emails a day.
+            {(summary.data.dailyCapacity || 100).toLocaleString()} emails a day.
+            {summary.data.transports.length > 1 && ' Each service takes over when the one before reaches its daily limit.'}
           </p>
         )}
 
@@ -745,7 +752,7 @@ export function MarketingCampaignsPage() {
         <SendDialog
           campaign={sending}
           subscribed={subscribed}
-          transport={summary.data?.transport ?? null}
+          summary={summary.data}
           onClose={() => {
             setSending(null);
           }}
