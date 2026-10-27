@@ -800,6 +800,14 @@ export const adminApi = {
   deleteMarketingCampaign: (id: string) =>
     send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`),
 
+  /// Banner image: permit, PUT to Azure, confirm - like article images.
+  marketingImageUploadUrl: (id: string, extension: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image/upload-url`, { extension }),
+  marketingImageConfirm: (id: string, path: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image/confirm`, { path }),
+  removeMarketingImage: (id: string) =>
+    send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image`),
+
   /// Email the campaign to one address, subject prefixed "[Test]".
   testMarketingCampaign: (id: string, to: string) =>
     send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/test`, { to }),

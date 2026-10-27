@@ -16,6 +16,12 @@ export type Campaign = {
   id: string;
   subject: string;
   body: string;
+  /// Banner at the top of the email, and where clicking it goes.
+  imageUrl: string | null;
+  imageLink: string | null;
+  /// Inbox sender; null = the server default (hello@aarambh.app).
+  fromName: string | null;
+  fromEmail: string | null;
   status: CampaignStatus;
   audience: number;
   sent: number;
@@ -63,6 +69,10 @@ export function parseCampaign(raw: Record<string, unknown>): Campaign {
     id: typeof raw.id === 'string' ? raw.id : '',
     subject: typeof raw.subject === 'string' ? raw.subject : '',
     body: typeof raw.body === 'string' ? raw.body : '',
+    imageUrl: str(raw.imageUrl),
+    imageLink: str(raw.imageLink),
+    fromName: str(raw.fromName),
+    fromEmail: str(raw.fromEmail),
     status: STATUSES.find((s) => s === raw.status) ?? 'draft',
     audience: num(raw.audience),
     sent: num(raw.sent),
