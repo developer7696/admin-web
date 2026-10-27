@@ -10,7 +10,7 @@ export type Contact = {
   unsubscribedAt: string | null;
 };
 
-export type CampaignStatus = 'draft' | 'sending' | 'sent' | 'failed';
+export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'paused' | 'sent' | 'failed';
 
 export type Campaign = {
   id: string;
@@ -31,6 +31,12 @@ export type Campaign = {
   startedAt: string | null;
   finishedAt: string | null;
   heartbeatAt: string | null;
+  /// When a scheduled campaign starts.
+  scheduledAt: string | null;
+  /// Emails per 24 hours; null = no limit.
+  dailyLimit: number | null;
+  /// When a paused (daily-limited) send continues.
+  resumeAt: string | null;
 };
 
 export type MarketingSummary = {
@@ -62,7 +68,7 @@ export function parseContact(raw: Record<string, unknown>): Contact {
   };
 }
 
-const STATUSES: CampaignStatus[] = ['draft', 'sending', 'sent', 'failed'];
+const STATUSES: CampaignStatus[] = ['draft', 'scheduled', 'sending', 'paused', 'sent', 'failed'];
 
 export function parseCampaign(raw: Record<string, unknown>): Campaign {
   return {
@@ -82,6 +88,9 @@ export function parseCampaign(raw: Record<string, unknown>): Campaign {
     startedAt: str(raw.startedAt),
     finishedAt: str(raw.finishedAt),
     heartbeatAt: str(raw.heartbeatAt),
+    scheduledAt: str(raw.scheduledAt),
+    dailyLimit: typeof raw.dailyLimit === 'number' && raw.dailyLimit > 0 ? raw.dailyLimit : null,
+    resumeAt: str(raw.resumeAt),
   };
 }
 

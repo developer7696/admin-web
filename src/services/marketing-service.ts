@@ -123,10 +123,17 @@ export const marketingService = {
       await adminApi.deleteMarketingCampaign(id);
     }),
 
-  test: (id: string, to: string): Promise<void> =>
+  test: (id: string, to: string, name: string): Promise<void> =>
     guard(async () => {
-      await adminApi.testMarketingCampaign(id, to);
+      await adminApi.testMarketingCampaign(id, to, name);
     }),
 
-  send: (id: string): Promise<Campaign> => guard(async () => campaignOf(await adminApi.sendMarketingCampaign(id))),
+  send: (id: string, dailyLimit: number | null): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.sendMarketingCampaign(id, dailyLimit))),
+
+  schedule: (id: string, at: Date, dailyLimit: number | null): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.scheduleMarketingCampaign(id, at.toISOString(), dailyLimit))),
+
+  unschedule: (id: string): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.unscheduleMarketingCampaign(id))),
 };
