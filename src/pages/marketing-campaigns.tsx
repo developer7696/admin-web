@@ -4,12 +4,13 @@ import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
 import { useAuth, useCan } from '@/auth/auth-context';
 import { fmtDateShort } from '@/lib/format';
-import { useCampaigns, useMarketingMutation, useMarketingSummary } from '@/hooks/use-marketing';
+import { useCampaigns, useMarketingMutation, useMarketingSummary, useSubscribedContacts } from '@/hooks/use-marketing';
 import { marketingService, type CampaignDraft } from '@/services/marketing-service';
 import { isStalled, type Campaign } from '@/types/marketing';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogBody,
@@ -292,6 +293,78 @@ function TestDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => 
   );
 }
 
+// ── Recipients ──────────────────────────────────────────────────────────────
+
+/// Pick who gets the campaign: a searchable checklist of subscribed contacts.
+/// "Select all" acts on what the search shows, so "search gmail → Select all"
+/// picks exactly those.
+function RecipientPicker({ selected, onChange }: { selected: Set<string>; onChange: (next: Set<string>) => void }) {
+  const query = useSubscribedContacts(true);
+  const [search, setSearch] = useState('');
+  const all = query.data ?? [];
+  const q = search.trim().toLowerCase();
+  const shown = q === '' ? all : all.filter((c) => c.email.includes(q) || (c.name ?? '').toLowerCase().includes(q));
+  const allShownSelected = shown.length > 0 && shown.every((c) => selected.has(c.id));
+
+  function toggle(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  }
+  function toggleShown() {
+    const next = new Set(selected);
+    for (const c of shown) {
+      if (allShownSelected) next.delete(c.id);
+      else next.add(c.id);
+    }
+    onChange(next);
+  }
+
+  if (query.isLoading) return <LoadingState label="Loading contacts…" />;
+  if (query.isError) return <p className="text-xs text-red-600">{errorText(query.error, 'Could not load contacts.')}</p>;
+  return (
+    <div className="space-y-2">
+      <Input
+        placeholder="Search name or email"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+        }}
+      />
+      <div className="flex items-center justify-between text-xs">
+        <label className="flex cursor-pointer items-center gap-2 font-medium">
+          <Checkbox checked={allShownSelected} onCheckedChange={toggleShown} />
+          {q ? `Select all ${shown.length} shown` : `Select all ${all.length}`}
+        </label>
+        <span className="text-muted-foreground">
+          {selected.size} selected
+          {selected.size > 0 && (
+            <button type="button" className="ml-2 underline" onClick={() => { onChange(new Set()); }}>
+              clear
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="scrollbar-thin max-h-56 overflow-y-auto rounded-md border">
+        {shown.map((c) => (
+          <label key={c.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/60">
+            <Checkbox
+              checked={selected.has(c.id)}
+              onCheckedChange={() => {
+                toggle(c.id);
+              }}
+            />
+            <span className="min-w-0 flex-1 truncate">{c.name ?? '—'}</span>
+            <span className="truncate text-xs text-muted-foreground">{c.email}</span>
+          </label>
+        ))}
+        {shown.length === 0 && <p className="p-3 text-sm text-muted-foreground">No match.</p>}
+      </div>
+    </div>
+  );
+}
+
 // ── Send now or later ───────────────────────────────────────────────────────
 
 /// `yyyy-MM-ddTHH:mm` in local time, for <input type="datetime-local">.
@@ -314,9 +387,14 @@ function SendDialog({
 }) {
   const isDraft = campaign.status === 'draft';
   const [when, setWhen] = useState<'now' | 'later'>('now');
+  const [who, setWho] = useState<'all' | 'chosen'>(campaign.audienceIds ? 'chosen' : 'all');
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(campaign.audienceIds ?? []));
+  // A paused or failed send keeps the people it started with.
+  const contactIds = !isDraft ? campaign.audienceIds : who === 'chosen' ? [...chosen] : null;
+  const recipients = contactIds ? contactIds.length : subscribed;
   const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60_000)));
   // Resend's free plan stops at 100 a day; most sends today want the cap on.
-  const [limitOn, setLimitOn] = useState(campaign.dailyLimit !== null || subscribed > 100);
+  const [limitOn, setLimitOn] = useState(campaign.dailyLimit !== null || (campaign.audienceIds?.length ?? subscribed) > 100);
   const [limit, setLimit] = useState(String(campaign.dailyLimit ?? 100));
   const [error, setError] = useState<string | null>(null);
 
@@ -324,12 +402,13 @@ function SendDialog({
   const limitOk = !limitOn || (Number.isInteger(dailyLimit) && (dailyLimit ?? 0) >= 1);
   const atDate = new Date(at);
   const atOk = when === 'now' || (!Number.isNaN(atDate.getTime()) && atDate.getTime() > Date.now() + 60_000);
-  const days = dailyLimit ? Math.ceil(subscribed / dailyLimit) : 1;
+  const days = dailyLimit ? Math.ceil(recipients / dailyLimit) : 1;
+  const whoOk = !isDraft || who === 'all' || chosen.size > 0;
 
   const go = useMarketingMutation(() =>
     when === 'later' && isDraft
-      ? marketingService.schedule(campaign.id, atDate, dailyLimit)
-      : marketingService.send(campaign.id, dailyLimit),
+      ? marketingService.schedule(campaign.id, atDate, dailyLimit, contactIds)
+      : marketingService.send(campaign.id, dailyLimit, contactIds),
   );
 
   async function submit() {
@@ -345,15 +424,30 @@ function SendDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !go.isPending && !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isDraft ? `Send to ${subscribed} contacts` : 'Continue this send'}</DialogTitle>
+          <DialogTitle>{isDraft ? `Send to ${recipients} contact${recipients === 1 ? '' : 's'}` : 'Continue this send'}</DialogTitle>
           <DialogDescription>
-            <strong>{campaign.subject}</strong> goes to every subscribed contact and cannot be recalled.
+            <strong>{campaign.subject}</strong>{' '}
+            {contactIds ? 'goes to the chosen contacts' : 'goes to every subscribed contact'} and cannot be recalled.
             {!isDraft && ' People already emailed are skipped.'}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4 text-sm">
+          {isDraft && (
+            <div className="space-y-2">
+              <p className="font-medium">Recipients</p>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={who === 'all'} onChange={() => { setWho('all'); }} /> All subscribed
+                contacts ({subscribed})
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={who === 'chosen'} onChange={() => { setWho('chosen'); }} /> Choose
+                contacts
+              </label>
+              {who === 'chosen' && <RecipientPicker selected={chosen} onChange={setChosen} />}
+            </div>
+          )}
           {isDraft && (
             <div className="space-y-2">
               <label className="flex items-center gap-2">
@@ -393,7 +487,7 @@ function SendDialog({
                   aria-invalid={!limitOk}
                 />
                 <span className="text-xs text-muted-foreground">
-                  per 24 hours — {subscribed} contacts take about {days} day{days === 1 ? '' : 's'}
+                  per 24 hours — {recipients} contacts take about {days} day{days === 1 ? '' : 's'}
                 </span>
               </div>
             )}
@@ -408,7 +502,7 @@ function SendDialog({
           <Button variant="outline" disabled={go.isPending} onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={go.isPending || !limitOk || !atOk} onClick={() => void submit()}>
+          <Button disabled={go.isPending || !limitOk || !atOk || !whoOk} onClick={() => void submit()}>
             {go.isPending && <Loader2 className="animate-spin" />}{' '}
             {when === 'later' && isDraft ? 'Schedule' : isDraft ? 'Send now' : 'Continue now'}
           </Button>
@@ -475,7 +569,7 @@ function CampaignCard({
                   <Mail /> Test
                 </Button>
                 <Button size="sm" disabled={subscribed === 0} onClick={onSend}>
-                  <Send /> Send to {subscribed}
+                  <Send /> Send…
                 </Button>
                 <Button size="sm" variant="ghost" aria-label="Delete draft" onClick={onDelete}>
                   <Trash2 />
@@ -509,7 +603,8 @@ function CampaignCard({
       {isScheduled && campaign.scheduledAt && (
         <p className="mt-3 text-xs">
           <Clock className="mr-1 inline size-3.5" />
-          Sends {fmtWhen(campaign.scheduledAt)} to all subscribed contacts
+          Sends {fmtWhen(campaign.scheduledAt)} to{' '}
+          {campaign.audienceIds ? `${campaign.audienceIds.length} chosen contacts` : 'all subscribed contacts'}
           {campaign.dailyLimit ? `, ${campaign.dailyLimit} a day` : ''}. Cancel to edit it.
         </p>
       )}
@@ -519,7 +614,8 @@ function CampaignCard({
             <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
           </div>
           <p className="text-xs text-muted-foreground tabular-nums">
-            {campaign.sent} sent · {campaign.failed} failed · {campaign.audience} recipients
+            {campaign.sent} sent · {campaign.failed} failed · {campaign.audience}{' '}
+            {campaign.audienceIds ? 'chosen recipients' : 'recipients'}
           </p>
           {campaign.lastError && (
             <p className="text-xs text-red-600">Last error: {campaign.lastError}</p>

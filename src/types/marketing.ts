@@ -37,6 +37,8 @@ export type Campaign = {
   dailyLimit: number | null;
   /// When a paused (daily-limited) send continues.
   resumeAt: string | null;
+  /// Chosen recipients (contact ids); null = every subscribed contact.
+  audienceIds: string[] | null;
 };
 
 export type MarketingSummary = {
@@ -91,6 +93,9 @@ export function parseCampaign(raw: Record<string, unknown>): Campaign {
     scheduledAt: str(raw.scheduledAt),
     dailyLimit: typeof raw.dailyLimit === 'number' && raw.dailyLimit > 0 ? raw.dailyLimit : null,
     resumeAt: str(raw.resumeAt),
+    audienceIds: Array.isArray(raw.audienceIds)
+      ? raw.audienceIds.filter((x): x is string => typeof x === 'string')
+      : null,
   };
 }
 

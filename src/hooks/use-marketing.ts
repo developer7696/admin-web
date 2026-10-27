@@ -18,6 +18,16 @@ export function useMarketingContacts(search: string) {
   });
 }
 
+/// Every subscribed contact, for the recipient picker. Loaded only when needed.
+export function useSubscribedContacts(enabled: boolean) {
+  return useQuery({
+    queryKey: [...marketingKey, 'subscribed'],
+    queryFn: marketingService.allSubscribed,
+    enabled,
+    staleTime: 0,
+  });
+}
+
 /// Refreshes every 3s while any campaign is sending, so counts move live.
 export function useCampaigns() {
   return useQuery<Campaign[]>({

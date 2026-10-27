@@ -128,11 +128,26 @@ export const marketingService = {
       await adminApi.testMarketingCampaign(id, to, name);
     }),
 
-  send: (id: string, dailyLimit: number | null): Promise<Campaign> =>
-    guard(async () => campaignOf(await adminApi.sendMarketingCampaign(id, dailyLimit))),
+  send: (id: string, dailyLimit: number | null, contactIds: string[] | null): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.sendMarketingCampaign(id, dailyLimit, contactIds))),
 
-  schedule: (id: string, at: Date, dailyLimit: number | null): Promise<Campaign> =>
-    guard(async () => campaignOf(await adminApi.scheduleMarketingCampaign(id, at.toISOString(), dailyLimit))),
+  schedule: (id: string, at: Date, dailyLimit: number | null, contactIds: string[] | null): Promise<Campaign> =>
+    guard(async () =>
+      campaignOf(await adminApi.scheduleMarketingCampaign(id, at.toISOString(), dailyLimit, contactIds)),
+    ),
+
+  /// Every subscribed contact, all pages - for picking recipients.
+  allSubscribed: (): Promise<Contact[]> =>
+    guard(async () => {
+      const out: Contact[] = [];
+      let after: string | undefined;
+      for (;;) {
+        const json = await adminApi.marketingContacts({ ...(after ? { after } : {}), limit: 200 });
+        out.push(...rows(json.contacts).map(parseContact).filter((c) => c.status === 'subscribed'));
+        if (typeof json.next !== 'string') return out;
+        after = json.next;
+      }
+    }),
 
   unschedule: (id: string): Promise<Campaign> =>
     guard(async () => campaignOf(await adminApi.unscheduleMarketingCampaign(id))),
