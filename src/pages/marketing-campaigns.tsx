@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { CalendarX, Clock, Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
 import { useAuth, useCan } from '@/auth/auth-context';
@@ -40,6 +40,10 @@ function StatusBadge({ campaign }: { campaign: Campaign }) {
   switch (campaign.status) {
     case 'draft':
       return <Badge variant="outline">Draft</Badge>;
+    case 'scheduled':
+      return <Badge variant="secondary">Scheduled</Badge>;
+    case 'paused':
+      return <Badge variant="warning">Paused until tomorrow</Badge>;
     case 'sending':
       return <Badge>Sending…</Badge>;
     case 'sent':
@@ -228,8 +232,9 @@ function EditorDialog({ campaign, onClose }: { campaign: Campaign | null; onClos
 function TestDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
   const { user } = useAuth();
   const [to, setTo] = useState(user?.email ?? '');
+  const [name, setName] = useState(user?.displayName ?? '');
   const [error, setError] = useState<string | null>(null);
-  const test = useMarketingMutation((address: string) => marketingService.test(campaign.id, address));
+  const test = useMarketingMutation((address: string) => marketingService.test(campaign.id, address, name.trim()));
 
   async function submit() {
     setError(null);
@@ -249,16 +254,29 @@ function TestDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => 
           <DialogTitle>Send a test</DialogTitle>
           <DialogDescription>Exactly as contacts will get it, with the subject marked [Test].</DialogDescription>
         </DialogHeader>
-        <DialogBody className="space-y-2">
-          <Label htmlFor="test-to">Send to</Label>
-          <Input
-            id="test-to"
-            type="email"
-            value={to}
-            onChange={(e) => {
-              setTo(e.target.value);
-            }}
-          />
+        <DialogBody className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="test-to">Email</Label>
+            <Input
+              id="test-to"
+              type="email"
+              value={to}
+              onChange={(e) => {
+                setTo(e.target.value);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="test-name">Name</Label>
+            <Input
+              id="test-name"
+              value={name}
+              placeholder="Fills {First Name} - leave empty to see “there”"
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
+            />
+          </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </DialogBody>
         <DialogFooter>
@@ -267,6 +285,132 @@ function TestDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => 
           </Button>
           <Button disabled={test.isPending || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim())} onClick={() => void submit()}>
             {test.isPending && <Loader2 className="animate-spin" />} Send test
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Send now or later ───────────────────────────────────────────────────────
+
+/// `yyyy-MM-ddTHH:mm` in local time, for <input type="datetime-local">.
+const toLocalInput = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const fmtWhen = (iso: string): string =>
+  new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+function SendDialog({
+  campaign,
+  subscribed,
+  onClose,
+}: {
+  campaign: Campaign;
+  subscribed: number;
+  onClose: () => void;
+}) {
+  const isDraft = campaign.status === 'draft';
+  const [when, setWhen] = useState<'now' | 'later'>('now');
+  const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60_000)));
+  // Resend's free plan stops at 100 a day; most sends today want the cap on.
+  const [limitOn, setLimitOn] = useState(campaign.dailyLimit !== null || subscribed > 100);
+  const [limit, setLimit] = useState(String(campaign.dailyLimit ?? 100));
+  const [error, setError] = useState<string | null>(null);
+
+  const dailyLimit = limitOn ? Number(limit) : null;
+  const limitOk = !limitOn || (Number.isInteger(dailyLimit) && (dailyLimit ?? 0) >= 1);
+  const atDate = new Date(at);
+  const atOk = when === 'now' || (!Number.isNaN(atDate.getTime()) && atDate.getTime() > Date.now() + 60_000);
+  const days = dailyLimit ? Math.ceil(subscribed / dailyLimit) : 1;
+
+  const go = useMarketingMutation(() =>
+    when === 'later' && isDraft
+      ? marketingService.schedule(campaign.id, atDate, dailyLimit)
+      : marketingService.send(campaign.id, dailyLimit),
+  );
+
+  async function submit() {
+    setError(null);
+    try {
+      await go.mutateAsync(undefined);
+      toast.success(when === 'later' && isDraft ? `Scheduled for ${fmtWhen(atDate.toISOString())}` : 'Sending started');
+      onClose();
+    } catch (e) {
+      setError(errorText(e, 'Could not start the send.'));
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !go.isPending && !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{isDraft ? `Send to ${subscribed} contacts` : 'Continue this send'}</DialogTitle>
+          <DialogDescription>
+            <strong>{campaign.subject}</strong> goes to every subscribed contact and cannot be recalled.
+            {!isDraft && ' People already emailed are skipped.'}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4 text-sm">
+          {isDraft && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={when === 'now'} onChange={() => { setWhen('now'); }} /> Send now
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={when === 'later'} onChange={() => { setWhen('later'); }} /> Schedule for
+              </label>
+              {when === 'later' && (
+                <Input
+                  type="datetime-local"
+                  value={at}
+                  min={toLocalInput(new Date())}
+                  onChange={(e) => {
+                    setAt(e.target.value);
+                  }}
+                  aria-invalid={!atOk}
+                />
+              )}
+              {!atOk && <p className="text-[11px] text-red-600">Pick a time at least a minute from now.</p>}
+            </div>
+          )}
+          <div className="space-y-2 rounded-lg border p-3">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={limitOn} onChange={(e) => { setLimitOn(e.target.checked); }} />
+              Limit emails per day
+            </label>
+            {limitOn && (
+              <div className="flex items-center gap-2">
+                <Input
+                  className="w-28"
+                  inputMode="numeric"
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(e.target.value.replace(/\D/g, ''));
+                  }}
+                  aria-invalid={!limitOk}
+                />
+                <span className="text-xs text-muted-foreground">
+                  per 24 hours — {subscribed} contacts take about {days} day{days === 1 ? '' : 's'}
+                </span>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Resend&apos;s free plan sends 100 a day. With a limit, the send pauses and continues by itself the next
+              day.
+            </p>
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" disabled={go.isPending} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={go.isPending || !limitOk || !atOk} onClick={() => void submit()}>
+            {go.isPending && <Loader2 className="animate-spin" />}{' '}
+            {when === 'later' && isDraft ? 'Schedule' : isDraft ? 'Send now' : 'Continue now'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -283,6 +427,7 @@ function CampaignCard({
   onEdit,
   onTest,
   onSend,
+  onUnschedule,
   onDelete,
 }: {
   campaign: Campaign;
@@ -291,13 +436,15 @@ function CampaignCard({
   onEdit: () => void;
   onTest: () => void;
   onSend: () => void;
+  onUnschedule: () => void;
   onDelete: () => void;
 }) {
   const stalled = isStalled(campaign);
   const done = campaign.sent + campaign.failed;
   const pct = campaign.audience > 0 ? Math.min(100, Math.round((done / campaign.audience) * 100)) : 0;
   const isDraft = campaign.status === 'draft';
-  const canResume = stalled || campaign.status === 'failed';
+  const canResume = stalled || campaign.status === 'failed' || campaign.status === 'paused';
+  const isScheduled = campaign.status === 'scheduled';
 
   return (
     <Card className="p-4">
@@ -335,7 +482,17 @@ function CampaignCard({
                 </Button>
               </>
             )}
-            {!isDraft && (
+            {isScheduled && (
+              <>
+                <Button size="sm" variant="outline" onClick={onTest}>
+                  <Mail /> Test
+                </Button>
+                <Button size="sm" variant="outline" onClick={onUnschedule}>
+                  <CalendarX /> Cancel schedule
+                </Button>
+              </>
+            )}
+            {!isDraft && !isScheduled && (
               <Button size="sm" variant="outline" onClick={onTest}>
                 <Mail /> Test
               </Button>
@@ -349,7 +506,14 @@ function CampaignCard({
         )}
       </div>
 
-      {!isDraft && (
+      {isScheduled && campaign.scheduledAt && (
+        <p className="mt-3 text-xs">
+          <Clock className="mr-1 inline size-3.5" />
+          Sends {fmtWhen(campaign.scheduledAt)} to all subscribed contacts
+          {campaign.dailyLimit ? `, ${campaign.dailyLimit} a day` : ''}. Cancel to edit it.
+        </p>
+      )}
+      {!isDraft && !isScheduled && (
         <div className="mt-3 space-y-1">
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
@@ -360,10 +524,16 @@ function CampaignCard({
           {campaign.lastError && (
             <p className="text-xs text-red-600">Last error: {campaign.lastError}</p>
           )}
+          {campaign.status === 'paused' && campaign.resumeAt && (
+            <p className="text-xs text-amber-600">
+              Daily limit reached{campaign.dailyLimit ? ` (${campaign.dailyLimit} a day)` : ''}. Continues by itself{' '}
+              {fmtWhen(campaign.resumeAt)} — or press Resume to continue now.
+            </p>
+          )}
           {stalled && (
             <p className="text-xs text-amber-600">
-              The send stopped (the server restarted). Resume continues where it left off — nobody is
-              emailed twice.
+              The send stopped (the server restarted). It continues by itself within a minute, or press
+              Resume — nobody is emailed twice.
             </p>
           )}
         </div>
@@ -385,7 +555,7 @@ export function MarketingCampaignsPage() {
   const [testing, setTesting] = useState<Campaign | null>(null);
   const [sending, setSending] = useState<Campaign | null>(null);
   const [deleting, setDeleting] = useState<Campaign | null>(null);
-  const send = useMarketingMutation((id: string) => marketingService.send(id));
+  const unschedule = useMarketingMutation((id: string) => marketingService.unschedule(id));
   const remove = useMarketingMutation((id: string) => marketingService.remove(id));
 
   return (
@@ -433,6 +603,12 @@ export function MarketingCampaignsPage() {
             onSend={() => {
               setSending(c);
             }}
+            onUnschedule={() => {
+              void unschedule
+                .mutateAsync(c.id)
+                .then(() => toast.success('Schedule cancelled - back to draft'))
+                .catch((e: unknown) => toast.error(errorText(e, 'Could not cancel the schedule.')));
+            }}
             onDelete={() => {
               setDeleting(c);
             }}
@@ -456,29 +632,15 @@ export function MarketingCampaignsPage() {
           }}
         />
       )}
-      <ConfirmDialog
-        open={sending !== null}
-        onOpenChange={(open) => {
-          if (!open) setSending(null);
-        }}
-        title={sending?.status === 'draft' ? `Send to ${subscribed} contacts?` : 'Resume this send?'}
-        description={
-          <>
-            <strong>{sending?.subject}</strong> goes to every subscribed contact. This cannot be undone or
-            recalled. {sending?.status !== 'draft' && 'People already emailed are skipped.'}
-          </>
-        }
-        confirmLabel={sending?.status === 'draft' ? 'Send now' : 'Resume'}
-        onConfirm={async () => {
-          if (!sending) return;
-          try {
-            await send.mutateAsync(sending.id);
-            toast.success('Sending started');
-          } catch (e) {
-            toast.error(errorText(e, 'Could not start the send.'));
-          }
-        }}
-      />
+      {sending && (
+        <SendDialog
+          campaign={sending}
+          subscribed={subscribed}
+          onClose={() => {
+            setSending(null);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => {

@@ -809,12 +809,20 @@ export const adminApi = {
     send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/image`),
 
   /// Email the campaign to one address, subject prefixed "[Test]".
-  testMarketingCampaign: (id: string, to: string) =>
-    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/test`, { to }),
+  testMarketingCampaign: (id: string, to: string, name: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/test`, { to, name }),
 
   /// Start - or resume - sending to every subscribed contact. Returns at once.
-  sendMarketingCampaign: (id: string) =>
-    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/send`),
+  sendMarketingCampaign: (id: string, dailyLimit: number | null) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/send`, { dailyLimit }),
+
+  /// Send at [at] (ISO with offset). The server's scheduler starts it within a minute.
+  scheduleMarketingCampaign: (id: string, at: string, dailyLimit: number | null) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`, { at, dailyLimit }),
+
+  /// Back to a draft.
+  unscheduleMarketingCampaign: (id: string) =>
+    send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`),
 
   // ── IAM (Super Admin) ─────────────────────────────────────────────────────
   // Who may use this panel, and for what. Reading the roster needs `iam:read`;
