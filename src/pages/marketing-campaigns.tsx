@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarX, Clock, Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { CalendarX, Clock, Copy, Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
 import { useAuth, useCan } from '@/auth/auth-context';
@@ -534,6 +534,8 @@ function CampaignCard({
   onTest,
   onSend,
   onUnschedule,
+  onDuplicate,
+  duplicating,
   onDelete,
 }: {
   campaign: Campaign;
@@ -543,6 +545,8 @@ function CampaignCard({
   onTest: () => void;
   onSend: () => void;
   onUnschedule: () => void;
+  onDuplicate: () => void;
+  duplicating: boolean;
   onDelete: () => void;
 }) {
   const stalled = isStalled(campaign);
@@ -608,6 +612,9 @@ function CampaignCard({
                 <RotateCcw /> Resume
               </Button>
             )}
+            <Button size="sm" variant="outline" disabled={duplicating} onClick={onDuplicate}>
+              {duplicating ? <Loader2 className="animate-spin" /> : <Copy />} Duplicate
+            </Button>
           </div>
         )}
       </div>
@@ -665,6 +672,7 @@ export function MarketingCampaignsPage() {
   const [deleting, setDeleting] = useState<Campaign | null>(null);
   const unschedule = useMarketingMutation((id: string) => marketingService.unschedule(id));
   const remove = useMarketingMutation((id: string) => marketingService.remove(id));
+  const duplicate = useMarketingMutation((id: string) => marketingService.duplicate(id));
 
   return (
     <div className="scrollbar-thin h-full overflow-y-auto p-4">
@@ -725,6 +733,16 @@ export function MarketingCampaignsPage() {
                 .then(() => toast.success('Schedule cancelled - back to draft'))
                 .catch((e: unknown) => toast.error(errorText(e, 'Could not cancel the schedule.')));
             }}
+            onDuplicate={() => {
+              void duplicate
+                .mutateAsync(c.id)
+                .then((copy) => {
+                  toast.success('Copied to a new draft');
+                  setEditing(copy);
+                })
+                .catch((e: unknown) => toast.error(errorText(e, 'Could not duplicate the campaign.')));
+            }}
+            duplicating={duplicate.isPending && duplicate.variables === c.id}
             onDelete={() => {
               setDeleting(c);
             }}

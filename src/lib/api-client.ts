@@ -821,6 +821,10 @@ export const adminApi = {
   scheduleMarketingCampaign: (id: string, at: string, dailyLimit: number | null, contactIds: string[] | null) =>
     send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`, { at, dailyLimit, contactIds }),
 
+  /// A new draft with the same subject, message, banner and sender. Works on sent campaigns too.
+  duplicateMarketingCampaign: (id: string) =>
+    send('POST', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/duplicate`),
+
   /// Back to a draft.
   unscheduleMarketingCampaign: (id: string) =>
     send('DELETE', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/schedule`),

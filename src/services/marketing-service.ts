@@ -156,6 +156,9 @@ export const marketingService = {
       }
     }),
 
+  duplicate: (id: string): Promise<Campaign> =>
+    guard(async () => campaignOf(await adminApi.duplicateMarketingCampaign(id))),
+
   unschedule: (id: string): Promise<Campaign> =>
     guard(async () => campaignOf(await adminApi.unscheduleMarketingCampaign(id))),
 };
