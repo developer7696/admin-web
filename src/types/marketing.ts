@@ -41,12 +41,20 @@ export type Campaign = {
   audienceIds: string[] | null;
 };
 
+export type MailTransport = 'smtp' | 'resend' | 'brevo';
+
+export const TRANSPORT_NAMES: Record<MailTransport, string> = { smtp: 'Gmail', resend: 'Resend', brevo: 'Brevo' };
+
 export type MarketingSummary = {
   contacts: { total: number; subscribed: number; unsubscribed: number };
   /// Server settings still missing before anything can be sent.
   missingSetup: string[];
-  /// Which service sends: Gmail SMTP (~2,000/day) or Resend (100/day free).
-  transport: 'smtp' | 'resend' | null;
+  /// The service sending first: Gmail SMTP (~2,000/day), Resend (100/day free) or Brevo (300/day free).
+  transport: MailTransport | null;
+  /// Every service in use, in order: each takes over once the one before hits its daily limit.
+  transports: MailTransport[];
+  /// Emails a day all of them allow together.
+  dailyCapacity: number;
   /// The address mail goes out from.
   sender: string | null;
 };
