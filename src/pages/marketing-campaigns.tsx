@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarX, Clock, Copy, Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { CalendarX, Clock, Copy, ListChecks, Loader2, Mail, Pencil, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiException } from '@/lib/api-client';
 import { useAuth, useCan } from '@/auth/auth-context';
@@ -27,6 +27,7 @@ import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { PageBar } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { MarketingSetupBanner } from './marketing-contacts';
+import { RecipientsDialog } from './marketing-recipients';
 
 /**
  * Write a campaign, test it on yourself, send it to every subscribed contact.
@@ -536,6 +537,7 @@ function CampaignCard({
   onUnschedule,
   onDuplicate,
   duplicating,
+  onRecipients,
   onDelete,
 }: {
   campaign: Campaign;
@@ -547,6 +549,7 @@ function CampaignCard({
   onUnschedule: () => void;
   onDuplicate: () => void;
   duplicating: boolean;
+  onRecipients: () => void;
   onDelete: () => void;
 }) {
   const stalled = isStalled(campaign);
@@ -612,6 +615,11 @@ function CampaignCard({
                 <RotateCcw /> Resume
               </Button>
             )}
+            {!isDraft && !isScheduled && (
+              <Button size="sm" variant="outline" onClick={onRecipients}>
+                <ListChecks /> Recipients
+              </Button>
+            )}
             <Button size="sm" variant="outline" disabled={duplicating} onClick={onDuplicate}>
               {duplicating ? <Loader2 className="animate-spin" /> : <Copy />} Duplicate
             </Button>
@@ -670,6 +678,7 @@ export function MarketingCampaignsPage() {
   const [testing, setTesting] = useState<Campaign | null>(null);
   const [sending, setSending] = useState<Campaign | null>(null);
   const [deleting, setDeleting] = useState<Campaign | null>(null);
+  const [viewing, setViewing] = useState<Campaign | null>(null);
   const unschedule = useMarketingMutation((id: string) => marketingService.unschedule(id));
   const remove = useMarketingMutation((id: string) => marketingService.remove(id));
   const duplicate = useMarketingMutation((id: string) => marketingService.duplicate(id));
@@ -743,6 +752,9 @@ export function MarketingCampaignsPage() {
                 .catch((e: unknown) => toast.error(errorText(e, 'Could not duplicate the campaign.')));
             }}
             duplicating={duplicate.isPending && duplicate.variables === c.id}
+            onRecipients={() => {
+              setViewing(c);
+            }}
             onDelete={() => {
               setDeleting(c);
             }}
@@ -763,6 +775,14 @@ export function MarketingCampaignsPage() {
           campaign={testing}
           onClose={() => {
             setTesting(null);
+          }}
+        />
+      )}
+      {viewing && (
+        <RecipientsDialog
+          campaign={campaigns.find((c) => c.id === viewing.id) ?? viewing}
+          onClose={() => {
+            setViewing(null);
           }}
         />
       )}

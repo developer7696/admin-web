@@ -8,6 +8,7 @@ import {
   type Contact,
   type ImportResult,
   type MailTransport,
+  type SendRecord,
   type MarketingSummary,
 } from '@/types/marketing';
 
@@ -154,6 +155,21 @@ export const marketingService = {
         if (typeof json.next !== 'string') return out;
         after = json.next;
       }
+    }),
+
+  sends: (id: string): Promise<SendRecord[]> =>
+    guard(async () => {
+      const json = await adminApi.marketingCampaignSends(id);
+      const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+      return rows(json.sends).map((r) => ({
+        contactId: str(r.contactId) ?? '',
+        email: str(r.email) ?? '',
+        status: r.status === 'sent' ? 'sent' : 'failed',
+        via: isTransport(r.via) ? r.via : null,
+        messageId: str(r.messageId),
+        error: str(r.error),
+        at: str(r.at),
+      }));
     }),
 
   duplicate: (id: string): Promise<Campaign> =>

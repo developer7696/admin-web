@@ -28,6 +28,16 @@ export function useSubscribedContacts(enabled: boolean) {
   });
 }
 
+/// One campaign's recipients log. Refreshes every 5s while it is sending.
+export function useCampaignSends(campaign: Campaign) {
+  return useQuery({
+    queryKey: [...marketingKey, 'sends', campaign.id],
+    queryFn: () => marketingService.sends(campaign.id),
+    staleTime: 0,
+    refetchInterval: campaign.status === 'sending' ? 5000 : false,
+  });
+}
+
 /// Refreshes every 3s while any campaign is sending, so counts move live.
 export function useCampaigns() {
   return useQuery<Campaign[]>({

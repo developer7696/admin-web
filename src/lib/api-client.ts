@@ -794,6 +794,10 @@ export const adminApi = {
 
   marketingCampaigns: () => send('GET', '/api/admin/marketing/campaigns'),
   marketingCampaign: (id: string) => send('GET', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`),
+
+  /// Everyone a campaign tried to email: status, service, error, time.
+  marketingCampaignSends: (id: string) =>
+    send('GET', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}/sends`),
   createMarketingCampaign: (body: Json) => send('POST', '/api/admin/marketing/campaigns', body),
   updateMarketingCampaign: (id: string, body: Json) =>
     send('PATCH', `/api/admin/marketing/campaigns/${encodeURIComponent(id)}`, body),
