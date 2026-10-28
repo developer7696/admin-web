@@ -45,6 +45,18 @@ export type MailTransport = 'smtp' | 'resend' | 'brevo';
 
 export const TRANSPORT_NAMES: Record<MailTransport, string> = { smtp: 'Gmail', resend: 'Resend', brevo: 'Brevo' };
 
+/// One recipient of a campaign, as the last attempt to email them went.
+export type SendRecord = {
+  contactId: string;
+  email: string;
+  status: 'sent' | 'failed';
+  /// Which service carried it; null when it cannot be told.
+  via: MailTransport | null;
+  messageId: string | null;
+  error: string | null;
+  at: string | null;
+};
+
 export type MarketingSummary = {
   contacts: { total: number; subscribed: number; unsubscribed: number };
   /// Server settings still missing before anything can be sent.
