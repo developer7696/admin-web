@@ -70,6 +70,14 @@ export function useUploadExerciseMedia() {
   });
 }
 
+export function useSetExercisePublished() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { id: string; isPublished: boolean }>({
+    mutationFn: ({ id, isPublished }) => exerciseCatalogRepository.setPublished(id, isPublished),
+    onSettled: () => reload(qc),
+  });
+}
+
 export function useDeleteExercise() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({

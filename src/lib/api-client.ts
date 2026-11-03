@@ -494,6 +494,12 @@ export const adminApi = {
   /// Remove an exercise. 404 if already gone; 409 if a program still names it.
   deleteExercise: (id: string) => send('DELETE', `/api/admin/exercise-catalog/${id}`),
 
+  /// Publish or unpublish. An unpublished exercise is left out of the app's
+  /// catalogue; publishing raises the `exercise.published` push when that rule
+  /// is on.
+  setExercisePublished: (id: string, isPublished: boolean) =>
+    send('PATCH', `/api/admin/exercise-catalog/${id}/publish`, { isPublished }),
+
   /// Ask for a short-lived write URL to upload one exercise file. Only the
   /// extension is sent — the server decides the blob path.
   exerciseUploadUrl: (id: string, kind: string, extension: string) =>
@@ -520,6 +526,11 @@ export const adminApi = {
   /// complete plan, not a patch.
   updateProgram: (id: string, body: Json) => send('PUT', `/api/admin/program-catalog/${id}`, body),
   deleteProgram: (id: string) => send('DELETE', `/api/admin/program-catalog/${id}`),
+
+  /// Publish or unpublish. An unpublished program is hidden from the app;
+  /// publishing raises the `program.published` push when that rule is on.
+  setProgramPublished: (id: string, isPublished: boolean) =>
+    send('PATCH', `/api/admin/program-catalog/${id}/publish`, { isPublished }),
 
   programCoverUploadUrl: (id: string, extension: string) =>
     send('POST', `/api/admin/program-catalog/${id}/cover/upload-url`, { extension }),
