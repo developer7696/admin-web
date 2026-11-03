@@ -41,6 +41,9 @@ export const programCatalogService = {
 
   remove: (id: string) => adminApi.deleteProgram(id),
 
+  setPublished: ({ id, isPublished }: { id: string; isPublished: boolean }) =>
+    adminApi.setProgramPublished(id, isPublished),
+
   /// Upload a cover image for `id` and store its Azure path on the program.
   ///
   /// Three steps, and the middle one deliberately does NOT go through our

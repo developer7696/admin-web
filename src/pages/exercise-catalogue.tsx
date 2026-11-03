@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Dumbbell,
+  Eye,
+  EyeOff,
   Image as ImageIcon,
   ImageOff,
   Package,
@@ -15,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDeleteExercise, useExerciseCatalog } from '@/hooks/use-exercise-catalog';
+import { useDeleteExercise, useExerciseCatalog, useSetExercisePublished } from '@/hooks/use-exercise-catalog';
 import { useCan } from '@/auth/auth-context';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { mediaHasImage, mediaHasVideo, mediaIsLinked, type Exercise } from '@/types/exercise-catalog';
@@ -175,6 +177,15 @@ function DetailField({ label, value }: { label: string; value: string | null }) 
   );
 }
 
+/// An exercise the app leaves out of its catalogue. Same badge as a draft recipe.
+function DraftBadge() {
+  return (
+    <span className="shrink-0 rounded-lg border border-orange-600 bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">
+      DRAFT
+    </span>
+  );
+}
+
 /// Side pane showing one exercise's PHOTO and VIDEO together, plus the fields
 /// most useful when auditing content.
 ///
@@ -187,6 +198,7 @@ function DetailPane({
   onClose,
   onEdit,
   onDelete,
+  onSetPublished,
   canWrite,
   embedded = false,
 }: {
@@ -194,6 +206,7 @@ function DetailPane({
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onSetPublished: (isPublished: boolean) => void;
   /// Without `exercises:write` the pane is a viewer: Edit and Delete are gone,
   /// not disabled. A greyed-out Delete on a catalogue you can only read is
   /// noise — the API refuses it either way.
@@ -212,6 +225,7 @@ function DetailPane({
             <span className={cn('rounded-[5px] px-1.5 py-0.5 text-[10px] font-semibold', style.bg, style.text)}>
               {titleCase(row.type)}
             </span>
+            {!row.isPublished && <DraftBadge />}
           </div>
           {embedded ? (
             <DialogTitle className="mt-1 text-[15px] font-bold">{row.name || '—'}</DialogTitle>
@@ -223,6 +237,18 @@ function DetailPane({
           <>
             <Button variant="ghost" size="icon-sm" onClick={onEdit} title="Edit">
               <SquarePen className="size-[17px] text-muted-foreground" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onSetPublished(!row.isPublished)}
+              title={row.isPublished ? 'Unpublish - hide from the app' : 'Publish - show in the app'}
+            >
+              {row.isPublished ? (
+                <EyeOff className="size-[17px] text-muted-foreground" />
+              ) : (
+                <Eye className="size-[17px] text-muted-foreground" />
+              )}
             </Button>
             <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete exercise">
               <Trash2 className="size-[18px] text-red-400" />
@@ -297,6 +323,7 @@ export function ExerciseCataloguePage() {
 
   const { data, isLoading, isError, error } = useExerciseCatalog();
   const remove = useDeleteExercise();
+  const publish = useSetExercisePublished();
   const canWrite = useCan('exercises:write');
 
   const rows = data?.exercises ?? [];
@@ -329,6 +356,15 @@ export function ExerciseCataloguePage() {
       toast.success(`${row.id} deleted`);
     } catch (e) {
       toast.error(`Could not delete ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function runSetPublished(row: Exercise, isPublished: boolean) {
+    try {
+      await publish.mutateAsync({ id: row.id, isPublished });
+      toast.success(isPublished ? `${row.id} published` : `${row.id} unpublished - hidden from the app`);
+    } catch (e) {
+      toast.error(`Could not update ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -488,7 +524,10 @@ export function ExerciseCataloguePage() {
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13.5px] font-semibold">{row.name || '—'}</p>
+                  <p className="flex items-center gap-2 truncate text-[13.5px] font-semibold">
+                    <span className="truncate">{row.name || '—'}</span>
+                    {!row.isPublished && <DraftBadge />}
+                  </p>
                   {subtitle && (
                     <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">{subtitle}</p>
                   )}
@@ -549,6 +588,7 @@ export function ExerciseCataloguePage() {
               onClose={() => setSelectedId(null)}
               onEdit={() => openForm(selected)}
               onDelete={() => setDeleting(selected)}
+              onSetPublished={(next) => void runSetPublished(selected, next)}
               canWrite={canWrite}
             />
           ) : (
@@ -560,6 +600,7 @@ export function ExerciseCataloguePage() {
                   onClose={() => setSelectedId(null)}
                   onEdit={() => openForm(selected)}
                   onDelete={() => setDeleting(selected)}
+                  onSetPublished={(next) => void runSetPublished(selected, next)}
                   canWrite={canWrite}
                 />
               </DialogContent>

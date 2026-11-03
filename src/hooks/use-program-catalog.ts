@@ -88,6 +88,14 @@ export function useDeleteProgram() {
   });
 }
 
+export function useSetProgramPublished() {
+  const qc = useQueryClient();
+  return useMutation<unknown, Error, { id: string; isPublished: boolean }>({
+    mutationFn: programCatalogService.setPublished,
+    onSettled: () => qc.invalidateQueries({ queryKey: programListKey }),
+  });
+}
+
 export function useUploadProgramCover() {
   const qc = useQueryClient();
   return useMutation<string, Error, { id: string; extension: string; file: Blob }>({

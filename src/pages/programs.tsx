@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Plus, RefreshCw, SquarePen, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, EyeOff, Plus, RefreshCw, SquarePen, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   programDetailKey,
   programListKey,
   useDeleteProgram,
+  useSetProgramPublished,
   useProgramDetail,
   useProgramList,
   useProgramMedia,
@@ -269,6 +270,8 @@ function ProgramDetailPane({
   onClose,
   onOpenEditor,
   onDelete,
+  isPublished,
+  onSetPublished,
   canWrite,
   embedded = false,
 }: {
@@ -276,6 +279,9 @@ function ProgramDetailPane({
   onClose: () => void;
   onOpenEditor: (program: ProgramDoc) => void;
   onDelete: () => void;
+  /// From the list row; undefined until the list has loaded.
+  isPublished: boolean | undefined;
+  onSetPublished: (isPublished: boolean) => void;
   /// Without `programs:write` this pane is the read-only plan viewer it already
   /// is for everything below the header - only Edit and Delete come off.
   canWrite: boolean;
@@ -314,6 +320,17 @@ function ProgramDetailPane({
             >
               <SquarePen className="size-[15px]" /> Edit
             </Button>
+            {isPublished !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onSetPublished(!isPublished)}
+                title={isPublished ? 'Hide this program from the app' : 'Show this program in the app'}
+              >
+                {isPublished ? <EyeOff className="size-[15px]" /> : <Eye className="size-[15px]" />}
+                {isPublished ? 'Unpublish' : 'Publish'}
+              </Button>
+            )}
             <Button variant="ghost" size="icon-sm" onClick={onDelete} title="Delete program">
               <Trash2 className="size-[18px] text-red-400" />
             </Button>
@@ -478,6 +495,17 @@ export function ProgramsPage() {
     }
   }
 
+  const publish = useSetProgramPublished();
+  async function runSetPublished(id: string, isPublished: boolean) {
+    try {
+      await publish.mutateAsync({ id, isPublished });
+      toast.success(isPublished ? `${id} published` : `${id} unpublished - hidden from the app`);
+    } catch (e) {
+      toast.error(`Could not update ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const selectedPublished = rows?.find((p) => p.id === selectedId)?.isPublished;
+
   const deletingName = rows?.find((p) => p.id === deleting)?.name ?? deleting;
 
   return (
@@ -540,6 +568,12 @@ export function ProgramsPage() {
                   </span>
                 </span>
 
+                {!p.isPublished && (
+                  <span className="rounded-lg border border-orange-600 bg-orange-500/10 px-2 py-1 text-[10px] font-bold text-orange-600">
+                    DRAFT
+                  </span>
+                )}
+
                 {programIsIncomplete(p) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -575,6 +609,8 @@ export function ProgramsPage() {
               onClose={() => setSelectedId(null)}
               onOpenEditor={setEditing}
               onDelete={() => setDeleting(selectedId)}
+              isPublished={selectedPublished}
+              onSetPublished={(next) => void runSetPublished(selectedId, next)}
               canWrite={canWrite}
             />
           ) : (
@@ -587,6 +623,8 @@ export function ProgramsPage() {
                   onClose={() => setSelectedId(null)}
                   onOpenEditor={setEditing}
                   onDelete={() => setDeleting(selectedId)}
+                  isPublished={selectedPublished}
+                  onSetPublished={(next) => void runSetPublished(selectedId, next)}
                   canWrite={canWrite}
                 />
               </DialogContent>

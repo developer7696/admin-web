@@ -107,6 +107,13 @@ export const exerciseCatalogRepository = {
       await adminApi.deleteExercise(id);
     }),
 
+  /// Publish or unpublish one exercise. Sends the state explicitly rather than
+  /// asking the server to flip, so a stale list cannot invert the intent.
+  setPublished: (id: string, isPublished: boolean): Promise<void> =>
+    guard(async () => {
+      await adminApi.setExercisePublished(id, isPublished);
+    }),
+
   /// Upload a video or image for `id` and link it to the exercise.
   ///
   /// Three steps, and the middle one deliberately does NOT go through our

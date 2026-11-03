@@ -83,6 +83,9 @@ export type Exercise = {
   /// (`[{id: 'E02'}]`) and nothing in the panel reads them beyond the count, so
   /// only the count is modelled — the list itself survives saves untouched.
   alternativeCount: number;
+  /// False only for an exercise explicitly unpublished; a document with no
+  /// flag predates publish state and is live in the app.
+  isPublished: boolean;
   media: ExerciseMedia;
   /// Fields stored as an empty string rather than absent.
   ///
@@ -140,6 +143,7 @@ export function parseExercise(json: Record<string, unknown>): Exercise {
     defaultRounds: num('defaultRounds'),
     duration: num('duration'),
     alternativeCount: ((json.alternatives as unknown[]) ?? []).length,
+    isPublished: json.isPublished !== false,
     media: parseMedia(json),
     blankFields: blanks,
     searchHaystack: [rawId, name, targetMuscleGroup ?? '', secondaryMuscleGroup ?? '', equipment ?? '']

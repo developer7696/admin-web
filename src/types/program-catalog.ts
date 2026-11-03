@@ -287,6 +287,9 @@ export type ProgramSummary = {
   totalWeeks: number;
   weekCount: number;
   sessionCount: number;
+  /// False only for a program explicitly unpublished. The app hides it, and a
+  /// server that predates the field reports nothing, which reads as live.
+  isPublished: boolean;
 };
 
 export const parseProgramSummary = (j: Record<string, unknown>): ProgramSummary => ({
@@ -295,6 +298,7 @@ export const parseProgramSummary = (j: Record<string, unknown>): ProgramSummary 
   totalWeeks: int(j.totalWeeks, 0),
   weekCount: int(j.weekCount, 0),
   sessionCount: int(j.sessionCount, 0),
+  isPublished: j.isPublished !== false,
 });
 
 /// True when the program has fewer weeks than it claims — visible in the list so
